@@ -1,0 +1,35 @@
+# Gradle files
+.gradle/
+build/
+.kotlin/
+
+# IDE files
+.idea/
+*.iml
+*.iws
+*.ipr
+out/
+
+# Local configuration
+local.properties
+
+# Android specific
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Keystore files
+*.jks
+*.keystore
+
+# Build artifacts
+*.apk
+*.aar
+*.bundle
+
+# OS specific
+.DS_Store
+Thumbs.db
+
+# Tool specific
+.artifacts/
