@@ -74,15 +74,16 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             _updateState.value = UpdateState.Checking
             // Replace with your actual update URL
             val updateUrl = "https://raw.githubusercontent.com/shamil-t/gallery-cloud-vault/refs/heads/master/update.json"
-            val updateInfo = updateManager.checkForUpdates(updateUrl)
-            if (updateInfo != null) {
+            val result = updateManager.checkForUpdates(updateUrl)
+            
+            result.onSuccess { updateInfo ->
                 if (updateManager.isUpdateAvailable(updateInfo)) {
                     _updateState.value = UpdateState.Available(updateInfo)
                 } else {
                     _updateState.value = UpdateState.NotAvailable
                 }
-            } else {
-                _updateState.value = UpdateState.Error("Failed to check for updates")
+            }.onFailure { exception ->
+                _updateState.value = UpdateState.Error(exception.message ?: "Failed to check for updates")
             }
         }
     }
