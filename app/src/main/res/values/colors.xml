@@ -8,9 +8,9 @@
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
 
-    <!-- Brand Colors -->
-    <color name="brand_primary">#6750A4</color>
-    <color name="brand_secondary">#070AB3</color>
-    <color name="brand_background">#FFFFFF</color>
-    <color name="ic_launcher_background">#6750A4</color>
+    <!-- Brand Colors (Azure Blue) -->
+    <color name="brand_primary">#0061A4</color>
+    <color name="brand_secondary">#00497D</color>
+    <color name="brand_background">#FDFBFF</color>
+    <color name="ic_launcher_background">#0061A4</color>
 </resources>

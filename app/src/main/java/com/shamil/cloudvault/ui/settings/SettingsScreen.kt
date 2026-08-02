@@ -68,6 +68,75 @@ fun SettingsScreen(
             }
 
             item {
+                val updateState by viewModel.updateState.collectAsState()
+                SettingsSection(title = "Updates") {
+                    when (val state = updateState) {
+                        is UpdateState.Idle -> {
+                            SettingsClickableItem(
+                                title = "Check for Updates",
+                                subtitle = "Current version: 1.0.0",
+                                icon = Icons.Default.Update,
+                                onClick = { viewModel.checkForUpdates() }
+                            )
+                        }
+                        is UpdateState.Checking -> {
+                            ListItem(
+                                headlineContent = { Text("Checking for updates...") },
+                                leadingContent = { 
+                                    Box(modifier = Modifier.size(24.dp), contentAlignment = Alignment.Center) {
+                                        CircularProgressIndicator(strokeWidth = 2.dp)
+                                    }
+                                }
+                            )
+                        }
+                        is UpdateState.Available -> {
+                            SettingsClickableItem(
+                                title = "Update Available: ${state.updateInfo.versionName}",
+                                subtitle = "Click to download",
+                                icon = Icons.Default.SystemUpdate,
+                                onClick = { viewModel.downloadUpdate(state.updateInfo) }
+                            )
+                        }
+                        is UpdateState.NotAvailable -> {
+                            SettingsClickableItem(
+                                title = "Up to Date",
+                                subtitle = "You have the latest version",
+                                icon = Icons.Default.CheckCircle,
+                                onClick = { viewModel.checkForUpdates() }
+                            )
+                        }
+                        is UpdateState.Downloading -> {
+                            ListItem(
+                                headlineContent = { Text("Downloading Update") },
+                                supportingContent = { LinearProgressIndicator(
+                                    progress = { state.progress / 100f },
+                                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+                                ) },
+                                leadingContent = { Icon(Icons.Default.Downloading, contentDescription = null) },
+                                trailingContent = { Text("${state.progress}%") }
+                            )
+                        }
+                        is UpdateState.ReadyToInstall -> {
+                            SettingsClickableItem(
+                                title = "Update Ready",
+                                subtitle = "Click to install",
+                                icon = Icons.Default.InstallMobile,
+                                onClick = { viewModel.installUpdate(state.filePath) }
+                            )
+                        }
+                        is UpdateState.Error -> {
+                            SettingsClickableItem(
+                                title = "Update Error",
+                                subtitle = state.message,
+                                icon = Icons.Default.Error,
+                                onClick = { viewModel.checkForUpdates() }
+                            )
+                        }
+                    }
+                }
+            }
+
+            item {
                 SettingsSection(title = "About") {
                     SettingsClickableItem(
                         title = "Version",

@@ -98,7 +98,7 @@ fun MediaViewer(
                 Icon(
                     imageVector = Icons.AutoMirrored.Filled.ArrowBack,
                     contentDescription = "Back",
-                    tint = MaterialTheme.colorScheme.surface
+                    tint = Color.White
                 )
             }
             Spacer(modifier = Modifier.weight(1f))
@@ -106,7 +106,7 @@ fun MediaViewer(
                 val currentItem = items[pagerState.currentPage]
                 shareMedia(context, currentItem)
             }) {
-                Icon(Icons.Default.Share, contentDescription = "Share", tint = MaterialTheme.colorScheme.surface)
+                Icon(Icons.Default.Share, contentDescription = "Share", tint = Color.White)
             }
             IconButton(onClick = {
                 val currentItem = items[pagerState.currentPage]
@@ -118,11 +118,11 @@ fun MediaViewer(
                 Icon(
                     imageVector = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
                     contentDescription = "Favorite",
-                    tint = if (isFavorite) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.surface
+                    tint = if (isFavorite) MaterialTheme.colorScheme.error else Color.White
                 )
             }
             IconButton(onClick = { showDetails = true }) {
-                Icon(Icons.Default.Info, contentDescription = "Details", tint = MaterialTheme.colorScheme.surface)
+                Icon(Icons.Default.Info, contentDescription = "Details", tint = Color.White)
             }
             IconButton(onClick = {
                 val currentItem = items[pagerState.currentPage]
@@ -136,7 +136,7 @@ fun MediaViewer(
                     }
                 }
             }) {
-                Icon(Icons.Default.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.surface)
+                Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color.White)
             }
         }
 

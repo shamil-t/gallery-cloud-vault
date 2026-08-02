@@ -22,6 +22,8 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.List
@@ -52,6 +54,7 @@ import com.shamil.cloudvault.model.AlbumItem
 import com.shamil.cloudvault.model.GalleryItem
 import com.shamil.cloudvault.model.GalleryTab
 import com.shamil.cloudvault.ui.components.GalleryShimmer
+import kotlinx.coroutines.launch
 import java.io.File
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -148,10 +151,14 @@ private fun GalleryContent(
     onFullScreenToggle: (Boolean) -> Unit
 ) {
     val context = LocalContext.current
-    var selectedTab by rememberSaveable { mutableStateOf(GalleryTab.Recent) }
+    val pagerState = rememberPagerState { GalleryTab.entries.size }
+    val coroutineScope = rememberCoroutineScope()
+    
     var selectedAlbumName by rememberSaveable { mutableStateOf<String?>(null) }
     var viewingItemIndex by rememberSaveable { mutableStateOf<Int?>(null) }
     var isAlbumListView by rememberSaveable { mutableStateOf(false) }
+
+    val selectedTab = GalleryTab.entries[pagerState.currentPage]
 
     val itemsToDisplay = remember(items, selectedAlbumName) {
         if (selectedAlbumName != null) {
@@ -224,15 +231,19 @@ private fun GalleryContent(
         Column(modifier = Modifier.padding(padding)) {
             if (selectedAlbumName == null && !isSelectionMode) {
                 PrimaryTabRow(
-                    selectedTabIndex = selectedTab.ordinal,
+                    selectedTabIndex = pagerState.currentPage,
                     containerColor = MaterialTheme.colorScheme.surface,
                     contentColor = MaterialTheme.colorScheme.primary,
                     divider = {}
                 ) {
-                    GalleryTab.entries.forEach { tab ->
+                    GalleryTab.entries.forEachIndexed { index, tab ->
                         Tab(
-                            selected = selectedTab == tab,
-                            onClick = { selectedTab = tab }
+                            selected = pagerState.currentPage == index,
+                            onClick = {
+                                coroutineScope.launch {
+                                    pagerState.animateScrollToPage(index)
+                                }
+                            }
                         ) {
                             Row(
                                 modifier = Modifier.padding(12.dp),
@@ -268,20 +279,14 @@ private fun GalleryContent(
                     onItemLongClick = { item -> viewModel.enterSelectionMode(item.id) }
                 )
             } else {
-                when (selectedTab) {
-                    GalleryTab.Recent -> GalleryGrid(
-                        galleryItems = items,
-                        selectedItems = selectedItems,
-                        onItemClick = { item ->
-                            if (isSelectionMode) viewModel.toggleSelection(item.id)
-                            else viewingItemIndex = items.indexOf(item)
-                        },
-                        onItemLongClick = { item -> viewModel.enterSelectionMode(item.id) }
-                    )
-                    GalleryTab.Favorites -> {
-                        val favoriteItems = remember(items) { items.filter { it.isFavorite } }
-                        GalleryGrid(
-                            galleryItems = favoriteItems,
+                HorizontalPager(
+                    state = pagerState,
+                    modifier = Modifier.fillMaxSize(),
+                    userScrollEnabled = !isSelectionMode
+                ) { page ->
+                    when (GalleryTab.entries[page]) {
+                        GalleryTab.Recent -> GalleryGrid(
+                            galleryItems = items,
                             selectedItems = selectedItems,
                             onItemClick = { item ->
                                 if (isSelectionMode) viewModel.toggleSelection(item.id)
@@ -289,26 +294,39 @@ private fun GalleryContent(
                             },
                             onItemLongClick = { item -> viewModel.enterSelectionMode(item.id) }
                         )
-                    }
-                    GalleryTab.Albums -> {
 
-                        val albums = remember(items) {
-                            items.groupBy { it.folder }
-                                .map { (name, media) ->
-                                    val firstItem = media.first()
-                                    AlbumItem(
-                                        id = firstItem.id,
-                                        name = name,
-                                        cover = firstItem.uri,
-                                        count = media.size,
-                                        isVideo = firstItem.isVideo
-                                    )
-                                }
+                        GalleryTab.Favorites -> {
+                            val favoriteItems = remember(items) { items.filter { it.isFavorite } }
+                            GalleryGrid(
+                                galleryItems = favoriteItems,
+                                selectedItems = selectedItems,
+                                onItemClick = { item ->
+                                    if (isSelectionMode) viewModel.toggleSelection(item.id)
+                                    else viewingItemIndex = items.indexOf(item)
+                                },
+                                onItemLongClick = { item -> viewModel.enterSelectionMode(item.id) }
+                            )
                         }
-                        if (isAlbumListView) {
-                            AlbumList(albums) { selectedAlbumName = it.name }
-                        } else {
-                            AlbumGrid(albums) { selectedAlbumName = it.name }
+
+                        GalleryTab.Albums -> {
+                            val albums = remember(items) {
+                                items.groupBy { it.folder }
+                                    .map { (name, media) ->
+                                        val firstItem = media.first()
+                                        AlbumItem(
+                                            id = firstItem.id,
+                                            name = name,
+                                            cover = firstItem.uri,
+                                            count = media.size,
+                                            isVideo = firstItem.isVideo
+                                        )
+                                    }
+                            }
+                            if (isAlbumListView) {
+                                AlbumList(albums) { selectedAlbumName = it.name }
+                            } else {
+                                AlbumGrid(albums) { selectedAlbumName = it.name }
+                            }
                         }
                     }
                 }

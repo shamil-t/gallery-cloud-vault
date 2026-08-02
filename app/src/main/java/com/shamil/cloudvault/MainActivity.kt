@@ -79,11 +79,11 @@ private fun SplashContentScreen(onSplashFinished: () -> Unit) {
         onSplashFinished()
     }
 
-    // Gradient background: purple to blue (matching launcher icon)
+    // Gradient background: azure blue palette
     val gradientBrush = Brush.linearGradient(
         colors = listOf(
-            Color(0xFF6750A4), // brand_primary
-            Color(0xFF070AB3)  // brand_secondary
+            Color(0xFF0061A4), // PrimaryLight
+            Color(0xFF00497D)  // PrimaryContainerDark / brand_secondary
         ),
         start = androidx.compose.ui.geometry.Offset(0f, 0f),
         end = androidx.compose.ui.geometry.Offset(0f, Float.POSITIVE_INFINITY)
