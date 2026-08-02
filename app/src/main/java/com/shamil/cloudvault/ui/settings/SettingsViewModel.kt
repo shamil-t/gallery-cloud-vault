@@ -73,7 +73,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch {
             _updateState.value = UpdateState.Checking
             // Replace with your actual update URL
-            val updateUrl = "https://raw.githubusercontent.com/shamil-t/CloudVault/main/update.json"
+            val updateUrl = "https://raw.githubusercontent.com/shamil-t/gallery-cloud-vault/refs/heads/master/update.json"
             val updateInfo = updateManager.checkForUpdates(updateUrl)
             if (updateInfo != null) {
                 if (updateManager.isUpdateAvailable(updateInfo)) {
