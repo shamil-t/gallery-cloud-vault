@@ -5,6 +5,7 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.shamil.cloudvault.utils.Constants
@@ -24,6 +25,7 @@ class SettingsPreferenceManager(private val context: Context) {
     private val themeKey = stringPreferencesKey(Constants.PREF_THEME_KEY)
     private val dynamicColorKey = booleanPreferencesKey(Constants.PREF_DYNAMIC_COLOR_KEY)
     private val biometricLockKey = booleanPreferencesKey(Constants.PREF_BIOMETRIC_LOCK_KEY)
+    private val gridColumnCountKey = intPreferencesKey(Constants.PREF_GRID_COLUMN_COUNT_KEY)
 
     val theme: Flow<AppTheme> = context.dataStore.data
         .catch { exception ->
@@ -52,6 +54,14 @@ class SettingsPreferenceManager(private val context: Context) {
         }
         .map { preferences ->
             preferences[biometricLockKey] ?: false
+        }
+
+    val gridColumnCount: Flow<Int> = context.dataStore.data
+        .catch { exception ->
+            Logger.e("SettingsPreferenceManager", "Error reading grid column count preference", exception)
+        }
+        .map { preferences ->
+            preferences[gridColumnCountKey] ?: Constants.DEFAULT_GRID_COLUMN_COUNT
         }
 
     suspend fun setTheme(theme: AppTheme) {
@@ -84,6 +94,17 @@ class SettingsPreferenceManager(private val context: Context) {
             Logger.d("SettingsPreferenceManager", "Biometric lock set to: $enabled")
         } catch (e: Exception) {
             Logger.e("SettingsPreferenceManager", "Error setting biometric lock", e)
+        }
+    }
+
+    suspend fun setGridColumnCount(count: Int) {
+        try {
+            context.dataStore.edit { preferences ->
+                preferences[gridColumnCountKey] = count
+            }
+            Logger.d("SettingsPreferenceManager", "Grid column count set to: $count")
+        } catch (e: Exception) {
+            Logger.e("SettingsPreferenceManager", "Error setting grid column count", e)
         }
     }
 

@@ -11,17 +11,20 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.shamil.cloudvault.data.preferences.AppTheme
+import com.shamil.cloudvault.utils.Constants
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
     viewModel: SettingsViewModel = viewModel()
 ) {
-    val theme by viewModel.theme.collectAsState()
-    val dynamicColor by viewModel.dynamicColor.collectAsState()
-    val biometricLock by viewModel.biometricLock.collectAsState()
+    val theme by viewModel.theme.collectAsStateWithLifecycle()
+    val dynamicColor by viewModel.dynamicColor.collectAsStateWithLifecycle()
+    val biometricLock by viewModel.biometricLock.collectAsStateWithLifecycle()
+    val gridColumnCount by viewModel.gridColumnCount.collectAsStateWithLifecycle()
 
     var showThemeDialog by remember { mutableStateOf(false) }
 
@@ -51,6 +54,15 @@ fun SettingsScreen(
                         icon = Icons.Default.ColorLens,
                         checked = dynamicColor,
                         onCheckedChange = { viewModel.setDynamicColor(it) }
+                    )
+                    SettingsSliderItem(
+                        title = "Grid Columns",
+                        subtitle = "$gridColumnCount columns",
+                        icon = Icons.Default.GridView,
+                        value = gridColumnCount.toFloat(),
+                        valueRange = Constants.MIN_GRID_COLUMNS.toFloat()..Constants.MAX_GRID_COLUMNS.toFloat(),
+                        steps = Constants.MAX_GRID_COLUMNS - Constants.MIN_GRID_COLUMNS - 1,
+                        onValueChange = { viewModel.setGridColumnCount(it.toInt()) }
                     )
                 }
             }
@@ -215,6 +227,41 @@ fun SettingsSwitchItem(
             Switch(checked = checked, onCheckedChange = onCheckedChange)
         }
     )
+}
+
+@Composable
+fun SettingsSliderItem(
+    title: String,
+    subtitle: String,
+    icon: ImageVector,
+    value: Float,
+    valueRange: ClosedFloatingPointRange<Float>,
+    steps: Int,
+    onValueChange: (Float) -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(modifier = Modifier.width(16.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.bodyLarge)
+                Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        Slider(
+            value = value,
+            onValueChange = onValueChange,
+            valueRange = valueRange,
+            steps = steps,
+            modifier = Modifier.padding(top = 4.dp)
+        )
+    }
 }
 
 @Composable

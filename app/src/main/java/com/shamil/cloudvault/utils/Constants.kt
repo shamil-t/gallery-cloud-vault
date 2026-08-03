@@ -45,6 +45,12 @@ object Constants {
     const val PREF_THEME_KEY = "app_theme"
     const val PREF_DYNAMIC_COLOR_KEY = "dynamic_color"
     const val PREF_BIOMETRIC_LOCK_KEY = "biometric_lock"
+    const val PREF_GRID_COLUMN_COUNT_KEY = "grid_column_count"
+
+    // Grid Limits
+    const val DEFAULT_GRID_COLUMN_COUNT = 3
+    const val MIN_GRID_COLUMNS = 2
+    const val MAX_GRID_COLUMNS = 6
 
     // Timeouts
     const val COROUTINE_TIMEOUT_MS = 5000L

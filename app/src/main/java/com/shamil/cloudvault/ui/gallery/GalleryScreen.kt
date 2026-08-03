@@ -16,6 +16,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -36,8 +37,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
@@ -54,6 +57,7 @@ import com.shamil.cloudvault.model.AlbumItem
 import com.shamil.cloudvault.model.GalleryItem
 import com.shamil.cloudvault.model.GalleryTab
 import com.shamil.cloudvault.ui.components.GalleryShimmer
+import com.shamil.cloudvault.utils.Constants
 import kotlinx.coroutines.launch
 import java.io.File
 
@@ -68,6 +72,7 @@ fun GalleryScreen(
     val binUiState by viewModel.binUiState.collectAsStateWithLifecycle()
     val selectedItems by viewModel.selectedItems.collectAsStateWithLifecycle()
     val isSelectionMode by viewModel.isSelectionMode.collectAsStateWithLifecycle()
+    val gridColumnCount by viewModel.gridColumnCount.collectAsStateWithLifecycle()
 
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
@@ -134,6 +139,7 @@ fun GalleryScreen(
                 binItems = (binUiState as? GalleryUiState.Success)?.items ?: emptyList(),
                 selectedItems = selectedItems,
                 isSelectionMode = isSelectionMode,
+                gridColumnCount = gridColumnCount,
                 scrollBehavior = scrollBehavior,
                 viewModel = viewModel,
                 onFullScreenToggle = onFullScreenToggle
@@ -149,6 +155,7 @@ private fun GalleryContent(
     binItems: List<GalleryItem>,
     selectedItems: Set<Long>,
     isSelectionMode: Boolean,
+    gridColumnCount: Int,
     scrollBehavior: TopAppBarScrollBehavior,
     viewModel: GalleryViewModel,
     onFullScreenToggle: (Boolean) -> Unit
@@ -236,10 +243,11 @@ private fun GalleryContent(
     ) { padding ->
         Column(modifier = Modifier.padding(padding)) {
             if (selectedAlbumName == null && !isSelectionMode) {
-                PrimaryTabRow(
+                PrimaryScrollableTabRow(
                     selectedTabIndex = pagerState.currentPage,
                     containerColor = MaterialTheme.colorScheme.surface,
                     contentColor = MaterialTheme.colorScheme.primary,
+                    edgePadding = 16.dp,
                     divider = {}
                 ) {
                     GalleryTab.entries.forEachIndexed { index, tab ->
@@ -259,13 +267,17 @@ private fun GalleryContent(
                                 Icon(
                                     imageVector = tab.icon,
                                     contentDescription = null,
-                                    modifier = Modifier.size(18.dp)
+                                    modifier = Modifier.size(20.dp)
                                 )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = tab.title,
-                                    style = MaterialTheme.typography.labelLarge
-                                )
+                                if (tab.title.isNotEmpty()) {
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = tab.title,
+                                        style = MaterialTheme.typography.labelLarge,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
                             }
                         }
                     }
@@ -277,6 +289,8 @@ private fun GalleryContent(
             if (selectedAlbumName != null) {
                 GalleryGrid(
                     galleryItems = itemsToDisplay,
+                    columnCount = gridColumnCount,
+                    onColumnCountChange = { viewModel.updateGridColumnCount(it) },
                     selectedItems = selectedItems,
                     onItemClick = { item ->
                         if (isSelectionMode) viewModel.toggleSelection(item.id)
@@ -293,6 +307,8 @@ private fun GalleryContent(
                     when (GalleryTab.entries[page]) {
                         GalleryTab.Recent -> GalleryGrid(
                             galleryItems = items,
+                            columnCount = gridColumnCount,
+                            onColumnCountChange = { viewModel.updateGridColumnCount(it) },
                             selectedItems = selectedItems,
                             onItemClick = { item ->
                                 if (isSelectionMode) viewModel.toggleSelection(item.id)
@@ -305,6 +321,8 @@ private fun GalleryContent(
                             val favoriteItems = remember(items) { items.filter { it.isFavorite } }
                             GalleryGrid(
                                 galleryItems = favoriteItems,
+                                columnCount = gridColumnCount,
+                                onColumnCountChange = { viewModel.updateGridColumnCount(it) },
                                 selectedItems = selectedItems,
                                 onItemClick = { item ->
                                     if (isSelectionMode) viewModel.toggleSelection(item.id)
@@ -343,6 +361,8 @@ private fun GalleryContent(
                             } else {
                                 GalleryGrid(
                                     galleryItems = binItems,
+                                    columnCount = gridColumnCount,
+                                    onColumnCountChange = { viewModel.updateGridColumnCount(it) },
                                     selectedItems = selectedItems,
                                     onItemClick = { item ->
                                         if (isSelectionMode) viewModel.toggleSelection(item.id)
@@ -445,13 +465,43 @@ fun PermissionScreen(onRequestPermission: () -> Unit) {
 @Composable
 fun GalleryGrid(
     galleryItems: List<GalleryItem>,
+    columnCount: Int,
+    onColumnCountChange: (Int) -> Unit,
     selectedItems: Set<Long> = emptySet(),
     onItemClick: (GalleryItem) -> Unit,
     onItemLongClick: (GalleryItem) -> Unit
 ) {
+    var zoomScale by remember { mutableFloatStateOf(1f) }
+
     LazyVerticalGrid(
-        columns = GridCells.Adaptive(120.dp),
-        modifier = Modifier.fillMaxSize(),
+        columns = GridCells.Fixed(columnCount),
+        modifier = Modifier
+            .fillMaxSize()
+            .pointerInput(columnCount) {
+                awaitPointerEventScope {
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        if (event.changes.size > 1) {
+                            val zoom = event.calculateZoom()
+                            if (zoom != 1f) {
+                                event.changes.forEach { it.consume() }
+                                zoomScale *= zoom
+                                if (zoomScale > 1.4f) {
+                                    if (columnCount > Constants.MIN_GRID_COLUMNS) {
+                                        onColumnCountChange(columnCount - 1)
+                                        zoomScale = 1f
+                                    }
+                                } else if (zoomScale < 0.7f) {
+                                    if (columnCount < Constants.MAX_GRID_COLUMNS) {
+                                        onColumnCountChange(columnCount + 1)
+                                        zoomScale = 1f
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
         contentPadding = PaddingValues(4.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp)

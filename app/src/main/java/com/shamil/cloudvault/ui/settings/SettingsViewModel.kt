@@ -8,6 +8,7 @@ import com.shamil.cloudvault.data.preferences.SettingsPreferenceManager
 import com.shamil.cloudvault.data.model.UpdateInfo
 import com.shamil.cloudvault.data.network.DownloadWorker
 import com.shamil.cloudvault.data.network.UpdateManager
+import com.shamil.cloudvault.utils.Constants
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
@@ -51,6 +52,12 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         initialValue = false
     )
 
+    val gridColumnCount = preferenceManager.gridColumnCount.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = Constants.DEFAULT_GRID_COLUMN_COUNT
+    )
+
     fun setTheme(theme: AppTheme) {
         viewModelScope.launch {
             preferenceManager.setTheme(theme)
@@ -66,6 +73,12 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     fun setBiometricLock(enabled: Boolean) {
         viewModelScope.launch {
             preferenceManager.setBiometricLock(enabled)
+        }
+    }
+
+    fun setGridColumnCount(count: Int) {
+        viewModelScope.launch {
+            preferenceManager.setGridColumnCount(count)
         }
     }
 

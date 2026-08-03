@@ -4,10 +4,12 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.shamil.cloudvault.data.GalleryRepository
+import com.shamil.cloudvault.data.preferences.SettingsPreferenceManager
 import com.shamil.cloudvault.data.worker.BinCleanupWorker
 import com.shamil.cloudvault.domain.model.MediaResult
 import com.shamil.cloudvault.domain.usecase.*
 import com.shamil.cloudvault.model.GalleryItem
+import com.shamil.cloudvault.utils.Constants
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import androidx.work.ExistingPeriodicWorkPolicy
@@ -24,6 +26,7 @@ sealed class GalleryUiState {
 
 class GalleryViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = GalleryRepository(application)
+    private val preferenceManager = SettingsPreferenceManager(application)
     private val getGalleryItemsUseCase = GetGalleryItemsUseCase(repository)
     private val getBinItemsUseCase = GetBinItemsUseCase(repository)
     private val moveToBinUseCase = MoveToBinUseCase(repository)
@@ -55,6 +58,13 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
 
     private val _isSelectionMode = MutableStateFlow(false)
     val isSelectionMode: StateFlow<Boolean> = _isSelectionMode.asStateFlow()
+
+    val gridColumnCount: StateFlow<Int> = preferenceManager.gridColumnCount
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = Constants.DEFAULT_GRID_COLUMN_COUNT
+        )
 
     val uiState: StateFlow<GalleryUiState> = getGalleryItemsUseCase()
         .map<MediaResult<List<GalleryItem>>, GalleryUiState> { result ->
@@ -149,6 +159,12 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
     fun toggleFavorite(itemId: Long, isFavorite: Boolean) {
         viewModelScope.launch {
             repository.toggleFavorite(itemId, isFavorite)
+        }
+    }
+
+    fun updateGridColumnCount(count: Int) {
+        viewModelScope.launch {
+            preferenceManager.setGridColumnCount(count)
         }
     }
 }
