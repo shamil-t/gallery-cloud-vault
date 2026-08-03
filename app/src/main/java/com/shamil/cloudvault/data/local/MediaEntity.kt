@@ -27,5 +27,7 @@ data class MediaEntity(
     val width: Int,
     val height: Int,
     val isFavorite: Boolean = false,
-    val isHidden: Boolean = false
+    val isHidden: Boolean = false,
+    val isDeleted: Boolean = false,
+    val deletedAt: Long? = null
 )

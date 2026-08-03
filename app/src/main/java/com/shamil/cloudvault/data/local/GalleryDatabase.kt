@@ -5,7 +5,7 @@ import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
 
-@Database(entities = [MediaEntity::class], version = 1, exportSchema = false)
+@Database(entities = [MediaEntity::class], version = 2, exportSchema = false)
 abstract class GalleryDatabase : RoomDatabase() {
     abstract fun galleryDao(): GalleryDao
 
@@ -19,7 +19,9 @@ abstract class GalleryDatabase : RoomDatabase() {
                     context.applicationContext,
                     GalleryDatabase::class.java,
                     "gallery_database"
-                ).build()
+                )
+                    .fallbackToDestructiveMigration()
+                    .build()
                 INSTANCE = instance
                 instance
             }

@@ -65,6 +65,7 @@ fun GalleryScreen(
 ) {
     val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val binUiState by viewModel.binUiState.collectAsStateWithLifecycle()
     val selectedItems by viewModel.selectedItems.collectAsStateWithLifecycle()
     val isSelectionMode by viewModel.isSelectionMode.collectAsStateWithLifecycle()
 
@@ -130,6 +131,7 @@ fun GalleryScreen(
         is GalleryUiState.Success -> {
             GalleryContent(
                 items = state.items,
+                binItems = (binUiState as? GalleryUiState.Success)?.items ?: emptyList(),
                 selectedItems = selectedItems,
                 isSelectionMode = isSelectionMode,
                 scrollBehavior = scrollBehavior,
@@ -144,6 +146,7 @@ fun GalleryScreen(
 @Composable
 private fun GalleryContent(
     items: List<GalleryItem>,
+    binItems: List<GalleryItem>,
     selectedItems: Set<Long>,
     isSelectionMode: Boolean,
     scrollBehavior: TopAppBarScrollBehavior,
@@ -188,10 +191,13 @@ private fun GalleryContent(
             if (isSelectionMode) {
                 SelectionTopBar(
                     selectedCount = selectedItems.size,
+                    isInBin = selectedTab == GalleryTab.Bin,
                     onCancel = { viewModel.clearSelection() },
                     onDelete = { viewModel.deleteSelected() },
+                    onRestore = { viewModel.restoreSelected() },
+                    onDeletePermanently = { viewModel.permanentlyDeleteSelected() },
                     onShare = {
-                        val itemsToShare = items.filter { selectedItems.contains(it.id) }
+                        val itemsToShare = (if (selectedTab == GalleryTab.Bin) binItems else items).filter { selectedItems.contains(it.id) }
                         if (itemsToShare.isNotEmpty()) shareMultipleMedia(context, itemsToShare)
                         viewModel.clearSelection()
                     },
@@ -328,6 +334,23 @@ private fun GalleryContent(
                                 AlbumGrid(albums) { selectedAlbumName = it.name }
                             }
                         }
+
+                        GalleryTab.Bin -> {
+                            if (binItems.isEmpty()) {
+                                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                    Text("Bin is empty")
+                                }
+                            } else {
+                                GalleryGrid(
+                                    galleryItems = binItems,
+                                    selectedItems = selectedItems,
+                                    onItemClick = { item ->
+                                        if (isSelectionMode) viewModel.toggleSelection(item.id)
+                                    },
+                                    onItemLongClick = { item -> viewModel.enterSelectionMode(item.id) }
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -338,8 +361,11 @@ private fun GalleryContent(
 @Composable
 fun SelectionTopBar(
     selectedCount: Int,
+    isInBin: Boolean = false,
     onCancel: () -> Unit,
     onDelete: () -> Unit,
+    onRestore: () -> Unit = {},
+    onDeletePermanently: () -> Unit = {},
     onShare: () -> Unit,
     onFavorite: () -> Unit
 ) {
@@ -351,14 +377,23 @@ fun SelectionTopBar(
             }
         },
         actions = {
-            IconButton(onClick = onFavorite) {
-                Icon(Icons.Default.FavoriteBorder, contentDescription = "Favorite")
-            }
-            IconButton(onClick = onShare) {
-                Icon(Icons.Default.Share, contentDescription = "Share")
-            }
-            IconButton(onClick = onDelete) {
-                Icon(Icons.Default.Delete, contentDescription = "Delete")
+            if (isInBin) {
+                IconButton(onClick = onRestore) {
+                    Icon(Icons.Default.Restore, contentDescription = "Restore")
+                }
+                IconButton(onClick = onDeletePermanently) {
+                    Icon(Icons.Default.DeleteForever, contentDescription = "Delete Permanently")
+                }
+            } else {
+                IconButton(onClick = onFavorite) {
+                    Icon(Icons.Default.FavoriteBorder, contentDescription = "Favorite")
+                }
+                IconButton(onClick = onShare) {
+                    Icon(Icons.Default.Share, contentDescription = "Share")
+                }
+                IconButton(onClick = onDelete) {
+                    Icon(Icons.Default.Delete, contentDescription = "Delete")
+                }
             }
         }
     )

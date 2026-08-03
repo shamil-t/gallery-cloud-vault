@@ -38,7 +38,9 @@ class GalleryRepository(private val context: Context) : IGalleryRepository {
                     mimeType = entity.mimeType,
                     width = entity.width,
                     height = entity.height,
-                    isFavorite = entity.isFavorite
+                    isFavorite = entity.isFavorite,
+                    isDeleted = entity.isDeleted,
+                    deletedAt = entity.deletedAt
                 )
             }
         }
@@ -49,6 +51,29 @@ class GalleryRepository(private val context: Context) : IGalleryRepository {
         }
         .catch { exception ->
             Logger.e(tag, "Error collecting gallery items", exception)
+        }
+        .flowOn(Dispatchers.IO)
+
+    override fun getBinItems(): Flow<List<GalleryItem>> = dao.getBinMedia()
+        .map { entities ->
+            entities.map { entity ->
+                GalleryItem(
+                    id = entity.id,
+                    name = entity.name,
+                    uri = Uri.parse(entity.uri),
+                    folder = entity.folder,
+                    date = entity.date,
+                    isVideo = entity.isVideo,
+                    size = entity.size,
+                    path = entity.path,
+                    mimeType = entity.mimeType,
+                    width = entity.width,
+                    height = entity.height,
+                    isFavorite = entity.isFavorite,
+                    isDeleted = entity.isDeleted,
+                    deletedAt = entity.deletedAt
+                )
+            }
         }
         .flowOn(Dispatchers.IO)
 
@@ -190,12 +215,44 @@ class GalleryRepository(private val context: Context) : IGalleryRepository {
         }
     }
 
-    override suspend fun deleteMedia(id: Long) = withContext(Dispatchers.IO) {
+    override suspend fun moveToBin(id: Long) = withContext(Dispatchers.IO) {
+        try {
+            dao.moveToBin(id, System.currentTimeMillis())
+            Logger.d(tag, "Moved item $id to bin")
+        } catch (e: Exception) {
+            Logger.e(tag, "Error moving to bin", e)
+        }
+    }
+
+    override suspend fun restoreFromBin(id: Long) = withContext(Dispatchers.IO) {
+        try {
+            dao.restoreFromBin(id)
+            Logger.d(tag, "Restored item $id from bin")
+        } catch (e: Exception) {
+            Logger.e(tag, "Error restoring from bin", e)
+        }
+    }
+
+    override suspend fun deletePermanently(id: Long) = withContext(Dispatchers.IO) {
         try {
             dao.deleteMediaById(id)
-            Logger.d(tag, "Deleted media item $id")
+            Logger.d(tag, "Permanently deleted item $id")
         } catch (e: Exception) {
-            Logger.e(tag, "Error deleting media", e)
+            Logger.e(tag, "Error permanently deleting", e)
         }
+    }
+
+    override suspend fun cleanupBin() = withContext(Dispatchers.IO) {
+        try {
+            val threshold = System.currentTimeMillis() - (30 * 24 * 60 * 60 * 1000L)
+            dao.deleteOldBinItems(threshold)
+            Logger.d(tag, "Cleaned up old bin items")
+        } catch (e: Exception) {
+            Logger.e(tag, "Error cleaning up bin", e)
+        }
+    }
+
+    override suspend fun deleteMedia(id: Long) = withContext(Dispatchers.IO) {
+        moveToBin(id)
     }
 }

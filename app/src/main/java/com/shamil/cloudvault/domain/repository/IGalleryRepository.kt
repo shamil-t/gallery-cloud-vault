@@ -5,7 +5,12 @@ import kotlinx.coroutines.flow.Flow
 
 interface IGalleryRepository {
     fun getGalleryItems(): Flow<List<GalleryItem>>
+    fun getBinItems(): Flow<List<GalleryItem>>
     suspend fun syncMediaStore()
     suspend fun toggleFavorite(id: Long, isFavorite: Boolean)
+    suspend fun moveToBin(id: Long)
+    suspend fun restoreFromBin(id: Long)
+    suspend fun deletePermanently(id: Long)
+    suspend fun cleanupBin()
     suspend fun deleteMedia(id: Long)
 }

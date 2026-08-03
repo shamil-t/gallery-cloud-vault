@@ -14,5 +14,7 @@ data class GalleryItem(
     val mimeType: String,
     val width: Int,
     val height: Int,
-    val isFavorite: Boolean = false
+    val isFavorite: Boolean = false,
+    val isDeleted: Boolean = false,
+    val deletedAt: Long? = null
 )

@@ -4,13 +4,16 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.shamil.cloudvault.data.GalleryRepository
+import com.shamil.cloudvault.data.worker.BinCleanupWorker
 import com.shamil.cloudvault.domain.model.MediaResult
-import com.shamil.cloudvault.domain.usecase.DeleteMediaUseCase
-import com.shamil.cloudvault.domain.usecase.GetGalleryItemsUseCase
-import com.shamil.cloudvault.domain.usecase.SyncGalleryUseCase
+import com.shamil.cloudvault.domain.usecase.*
 import com.shamil.cloudvault.model.GalleryItem
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.WorkManager
+import java.util.concurrent.TimeUnit
 
 sealed class GalleryUiState {
     object Loading : GalleryUiState()
@@ -22,8 +25,30 @@ sealed class GalleryUiState {
 class GalleryViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = GalleryRepository(application)
     private val getGalleryItemsUseCase = GetGalleryItemsUseCase(repository)
-    private val deleteMediaUseCase = DeleteMediaUseCase(repository)
+    private val getBinItemsUseCase = GetBinItemsUseCase(repository)
+    private val moveToBinUseCase = MoveToBinUseCase(repository)
+    private val restoreFromBinUseCase = RestoreFromBinUseCase(repository)
+    private val deletePermanentlyUseCase = DeletePermanentlyUseCase(repository)
     private val syncGalleryUseCase = SyncGalleryUseCase(repository)
+    private val cleanupBinUseCase = CleanupBinUseCase(repository)
+
+    init {
+        scheduleBinCleanup()
+        viewModelScope.launch {
+            cleanupBinUseCase()
+        }
+    }
+
+    private fun scheduleBinCleanup() {
+        val cleanupRequest = PeriodicWorkRequestBuilder<BinCleanupWorker>(1, TimeUnit.DAYS)
+            .build()
+        WorkManager.getInstance(getApplication())
+            .enqueueUniquePeriodicWork(
+                "BinCleanupWork",
+                ExistingPeriodicWorkPolicy.KEEP,
+                cleanupRequest
+            )
+    }
 
     private val _selectedItems = MutableStateFlow<Set<Long>>(emptySet())
     val selectedItems: StateFlow<Set<Long>> = _selectedItems.asStateFlow()
@@ -32,7 +57,24 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
     val isSelectionMode: StateFlow<Boolean> = _isSelectionMode.asStateFlow()
 
     val uiState: StateFlow<GalleryUiState> = getGalleryItemsUseCase()
-        .map { result ->
+        .map<MediaResult<List<GalleryItem>>, GalleryUiState> { result ->
+            when (result) {
+                is MediaResult.Loading -> GalleryUiState.Loading
+                is MediaResult.Success -> {
+                    if (result.data.isEmpty()) GalleryUiState.Empty
+                    else GalleryUiState.Success(result.data)
+                }
+                is MediaResult.Error -> GalleryUiState.Error(result.exception.message ?: "Unknown error")
+            }
+        }
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = GalleryUiState.Loading
+        )
+
+    val binUiState: StateFlow<GalleryUiState> = getBinItemsUseCase()
+        .map<MediaResult<List<GalleryItem>>, GalleryUiState> { result ->
             when (result) {
                 is MediaResult.Loading -> GalleryUiState.Loading
                 is MediaResult.Success -> {
@@ -80,7 +122,25 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
     fun deleteSelected() {
         viewModelScope.launch {
             _selectedItems.value.forEach { id ->
-                deleteMediaUseCase(id)
+                moveToBinUseCase(id)
+            }
+            clearSelection()
+        }
+    }
+
+    fun restoreSelected() {
+        viewModelScope.launch {
+            _selectedItems.value.forEach { id ->
+                restoreFromBinUseCase(id)
+            }
+            clearSelection()
+        }
+    }
+
+    fun permanentlyDeleteSelected() {
+        viewModelScope.launch {
+            _selectedItems.value.forEach { id ->
+                deletePermanentlyUseCase(id)
             }
             clearSelection()
         }
