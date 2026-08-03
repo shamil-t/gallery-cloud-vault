@@ -3,6 +3,10 @@ package com.shamil.cloudvault.ui.gallery
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import androidx.paging.PagingData
+import androidx.paging.cachedIn
+import androidx.paging.insertSeparators
+import androidx.paging.map
 import com.shamil.cloudvault.data.GalleryRepository
 import com.shamil.cloudvault.data.preferences.SettingsPreferenceManager
 import com.shamil.cloudvault.data.worker.BinCleanupWorker
@@ -17,18 +21,15 @@ import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import java.util.concurrent.TimeUnit
 
-sealed class GalleryUiState {
-    object Loading : GalleryUiState()
-    data class Success(val items: List<GalleryItem>) : GalleryUiState()
-    data class Error(val message: String) : GalleryUiState()
-    object Empty : GalleryUiState()
+sealed class BinUiModel {
+    data class Item(val item: GalleryItem) : BinUiModel()
+    data class Header(val daysLeft: Int) : BinUiModel()
 }
 
 class GalleryViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = GalleryRepository(application)
     private val preferenceManager = SettingsPreferenceManager(application)
     private val getGalleryItemsUseCase = GetGalleryItemsUseCase(repository)
-    private val getBinItemsUseCase = GetBinItemsUseCase(repository)
     private val moveToBinUseCase = MoveToBinUseCase(repository)
     private val restoreFromBinUseCase = RestoreFromBinUseCase(repository)
     private val deletePermanentlyUseCase = DeletePermanentlyUseCase(repository)
@@ -66,38 +67,39 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
             initialValue = Constants.DEFAULT_GRID_COLUMN_COUNT
         )
 
-    val uiState: StateFlow<GalleryUiState> = getGalleryItemsUseCase()
-        .map<MediaResult<List<GalleryItem>>, GalleryUiState> { result ->
-            when (result) {
-                is MediaResult.Loading -> GalleryUiState.Loading
-                is MediaResult.Success -> {
-                    if (result.data.isEmpty()) GalleryUiState.Empty
-                    else GalleryUiState.Success(result.data)
-                }
-                is MediaResult.Error -> GalleryUiState.Error(result.exception.message ?: "Unknown error")
-            }
-        }
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = GalleryUiState.Loading
-        )
+    val galleryItemsPaging: Flow<PagingData<GalleryItem>> = repository.getGalleryItemsPaging()
+        .cachedIn(viewModelScope)
 
-    val binUiState: StateFlow<GalleryUiState> = getBinItemsUseCase()
-        .map<MediaResult<List<GalleryItem>>, GalleryUiState> { result ->
-            when (result) {
-                is MediaResult.Loading -> GalleryUiState.Loading
-                is MediaResult.Success -> {
-                    if (result.data.isEmpty()) GalleryUiState.Empty
-                    else GalleryUiState.Success(result.data)
+    val favoriteItemsPaging: Flow<PagingData<GalleryItem>> = repository.getFavoriteItemsPaging()
+        .cachedIn(viewModelScope)
+
+    val binUiStatePaging: Flow<PagingData<BinUiModel>> = repository.getBinItemsPaging()
+        .map { pagingData ->
+            pagingData.map { BinUiModel.Item(it) }
+                .insertSeparators { before, after ->
+                    val now = System.currentTimeMillis()
+                    val dayMillis = 24 * 60 * 60 * 1000L
+                    
+                    val daysLeftBefore = before?.item?.deletedAt?.let { 30 - ((now - it) / dayMillis).toInt() }
+                    val daysLeftAfter = after?.item?.deletedAt?.let { 30 - ((now - it) / dayMillis).toInt() }
+
+                    if (after != null && daysLeftBefore != daysLeftAfter) {
+                        BinUiModel.Header(daysLeftAfter ?: 0)
+                    } else {
+                        null
+                    }
                 }
-                is MediaResult.Error -> GalleryUiState.Error(result.exception.message ?: "Unknown error")
-            }
+        }
+        .cachedIn(viewModelScope)
+
+    val allGalleryItems: Flow<List<GalleryItem>> = getGalleryItemsUseCase()
+        .map { result ->
+            if (result is MediaResult.Success) result.data else emptyList()
         }
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),
-            initialValue = GalleryUiState.Loading
+            initialValue = emptyList()
         )
 
     fun refresh() {

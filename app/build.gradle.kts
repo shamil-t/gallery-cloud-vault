@@ -16,7 +16,7 @@ android {
         minSdk = 29
         targetSdk = 37
         versionCode = 1
-        versionName = "1.0.0"
+        versionName = "1.1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -70,6 +70,8 @@ dependencies {
     implementation(libs.google.material)
     implementation(libs.okhttp)
     implementation(libs.androidx.work.runtime.ktx)
+    implementation(libs.androidx.paging.runtime.ktx)
+    implementation(libs.androidx.paging.compose)
     implementation(libs.kotlinx.serialization.json)
 
     // Room

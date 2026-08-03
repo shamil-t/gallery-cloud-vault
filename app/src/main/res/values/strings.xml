@@ -1,12 +1,12 @@
 <resources>
-    <string name="app_name">CloudVault</string>
+    <string name="app_name">GalleryVault</string>
     <string name="app_tagline">Secure Cloud Storage</string>
 
     <!-- Gallery Screen -->
     <string name="gallery_title">Gallery</string>
     <string name="gallery_no_items">No items found</string>
     <string name="gallery_error">Error: %1$s</string>
-    <string name="gallery_permission_title">Welcome to Cloud Vault</string>
+    <string name="gallery_permission_title">Welcome to GalleryVault</string>
     <string name="gallery_permission_desc">To view and manage your media, we need permission to access your gallery.</string>
     <string name="gallery_grant_access">Grant Access</string>
     <string name="gallery_back">Back</string>

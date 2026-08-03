@@ -11,8 +11,8 @@ object Constants {
     const val MEDIA_TABLE_NAME = "media_items"
 
     // Cache
-    const val MEMORY_CACHE_SIZE_PERCENT = 0.40
-    const val DISK_CACHE_SIZE_PERCENT = 0.05
+    const val MEMORY_CACHE_SIZE_PERCENT = 0.15
+    const val DISK_CACHE_SIZE_PERCENT = 0.10
     const val IMAGE_CACHE_DIR = "image_cache"
     const val THUMBNAIL_SIZE = 256
 

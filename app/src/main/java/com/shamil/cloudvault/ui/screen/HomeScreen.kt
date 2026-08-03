@@ -1,5 +1,8 @@
 package com.shamil.cloudvault.ui.screen
 
+import android.app.Activity
+import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
 import androidx.compose.ui.Alignment
 import androidx.compose.material.icons.Icons
@@ -10,13 +13,10 @@ import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Scaffold
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.navigation.compose.NavHost
@@ -27,6 +27,8 @@ import com.shamil.cloudvault.ui.components.BottomNavigationBar
 import com.shamil.cloudvault.ui.gallery.GalleryScreen
 import com.shamil.cloudvault.ui.settings.SettingsScreen
 import com.shamil.cloudvault.ui.vault.VaultScreen
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 sealed class Screen(val route: String, val title: String, val icon: ImageVector) {
     object Gallery : Screen("gallery", "Gallery", Icons.Default.PhotoLibrary)
@@ -36,10 +38,27 @@ sealed class Screen(val route: String, val title: String, val icon: ImageVector)
 
 @Composable
 fun HomeScreen() {
+    val context = LocalContext.current
     val navController = rememberNavController()
+    val scope = rememberCoroutineScope()
     var isFullScreen by remember { mutableStateOf(false) }
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
+
+    var backPressedOnce by remember { mutableStateOf(false) }
+
+    BackHandler(enabled = currentRoute == Screen.Gallery.route) {
+        if (backPressedOnce) {
+            (context as? Activity)?.finish()
+        } else {
+            backPressedOnce = true
+            Toast.makeText(context, "Press back again to exit", Toast.LENGTH_SHORT).show()
+            scope.launch {
+                delay(2000)
+                backPressedOnce = false
+            }
+        }
+    }
 
     Box(modifier = Modifier.fillMaxSize()) {
         Scaffold(

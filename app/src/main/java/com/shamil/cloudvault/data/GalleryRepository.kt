@@ -7,6 +7,10 @@ import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.provider.MediaStore
+import androidx.paging.Pager
+import androidx.paging.PagingConfig
+import androidx.paging.PagingData
+import androidx.paging.map
 import com.shamil.cloudvault.data.local.GalleryDatabase
 import com.shamil.cloudvault.data.local.MediaEntity
 import com.shamil.cloudvault.domain.repository.IGalleryRepository
@@ -25,24 +29,7 @@ class GalleryRepository(private val context: Context) : IGalleryRepository {
 
     override fun getGalleryItems(): Flow<List<GalleryItem>> = dao.getAllMedia()
         .map { entities ->
-            entities.map { entity ->
-                GalleryItem(
-                    id = entity.id,
-                    name = entity.name,
-                    uri = Uri.parse(entity.uri),
-                    folder = entity.folder,
-                    date = entity.date,
-                    isVideo = entity.isVideo,
-                    size = entity.size,
-                    path = entity.path,
-                    mimeType = entity.mimeType,
-                    width = entity.width,
-                    height = entity.height,
-                    isFavorite = entity.isFavorite,
-                    isDeleted = entity.isDeleted,
-                    deletedAt = entity.deletedAt
-                )
-            }
+            entities.map { it.toDomain() }
         }
         .onStart {
             // Trigger sync when starting to collect
@@ -54,28 +41,44 @@ class GalleryRepository(private val context: Context) : IGalleryRepository {
         }
         .flowOn(Dispatchers.IO)
 
+    override fun getGalleryItemsPaging(): Flow<PagingData<GalleryItem>> = Pager(
+        config = PagingConfig(
+            pageSize = Constants.PAGE_SIZE,
+            prefetchDistance = Constants.PREFETCH_DISTANCE,
+            initialLoadSize = Constants.INITIAL_LOAD_SIZE
+        ),
+        pagingSourceFactory = { dao.getAllMediaPaging() }
+    ).flow.map { pagingData ->
+        pagingData.map { it.toDomain() }
+    }
+
     override fun getBinItems(): Flow<List<GalleryItem>> = dao.getBinMedia()
         .map { entities ->
-            entities.map { entity ->
-                GalleryItem(
-                    id = entity.id,
-                    name = entity.name,
-                    uri = Uri.parse(entity.uri),
-                    folder = entity.folder,
-                    date = entity.date,
-                    isVideo = entity.isVideo,
-                    size = entity.size,
-                    path = entity.path,
-                    mimeType = entity.mimeType,
-                    width = entity.width,
-                    height = entity.height,
-                    isFavorite = entity.isFavorite,
-                    isDeleted = entity.isDeleted,
-                    deletedAt = entity.deletedAt
-                )
-            }
+            entities.map { it.toDomain() }
         }
         .flowOn(Dispatchers.IO)
+
+    override fun getBinItemsPaging(): Flow<PagingData<GalleryItem>> = Pager(
+        config = PagingConfig(
+            pageSize = Constants.PAGE_SIZE,
+            prefetchDistance = Constants.PREFETCH_DISTANCE,
+            initialLoadSize = Constants.INITIAL_LOAD_SIZE
+        ),
+        pagingSourceFactory = { dao.getBinMediaPaging() }
+    ).flow.map { pagingData ->
+        pagingData.map { it.toDomain() }
+    }
+
+    override fun getFavoriteItemsPaging(): Flow<PagingData<GalleryItem>> = Pager(
+        config = PagingConfig(
+            pageSize = Constants.PAGE_SIZE,
+            prefetchDistance = Constants.PREFETCH_DISTANCE,
+            initialLoadSize = Constants.INITIAL_LOAD_SIZE
+        ),
+        pagingSourceFactory = { dao.getFavoriteMediaPaging() }
+    ).flow.map { pagingData ->
+        pagingData.map { it.toDomain() }
+    }
 
     override suspend fun syncMediaStore() = withContext(Dispatchers.IO) {
         try {
@@ -255,4 +258,21 @@ class GalleryRepository(private val context: Context) : IGalleryRepository {
     override suspend fun deleteMedia(id: Long) = withContext(Dispatchers.IO) {
         moveToBin(id)
     }
+
+    private fun MediaEntity.toDomain() = GalleryItem(
+        id = this.id,
+        name = this.name,
+        uri = Uri.parse(this.uri),
+        folder = this.folder,
+        date = this.date,
+        isVideo = this.isVideo,
+        size = this.size,
+        path = this.path,
+        mimeType = this.mimeType,
+        width = this.width,
+        height = this.height,
+        isFavorite = this.isFavorite,
+        isDeleted = this.isDeleted,
+        deletedAt = this.deletedAt
+    )
 }

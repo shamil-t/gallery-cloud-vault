@@ -1,6 +1,7 @@
 package com.shamil.cloudvault.data.local
 
 import androidx.room.*
+import androidx.paging.PagingSource
 import kotlinx.coroutines.flow.Flow
 
 @Dao
@@ -8,8 +9,17 @@ interface GalleryDao {
     @Query("SELECT * FROM media_items WHERE isDeleted = 0 ORDER BY date DESC")
     fun getAllMedia(): Flow<List<MediaEntity>>
 
+    @Query("SELECT * FROM media_items WHERE isDeleted = 0 ORDER BY date DESC")
+    fun getAllMediaPaging(): PagingSource<Int, MediaEntity>
+
     @Query("SELECT * FROM media_items WHERE isDeleted = 1 ORDER BY deletedAt DESC")
     fun getBinMedia(): Flow<List<MediaEntity>>
+
+    @Query("SELECT * FROM media_items WHERE isDeleted = 1 ORDER BY deletedAt DESC")
+    fun getBinMediaPaging(): PagingSource<Int, MediaEntity>
+
+    @Query("SELECT * FROM media_items WHERE isDeleted = 0 AND isFavorite = 1 ORDER BY date DESC")
+    fun getFavoriteMediaPaging(): PagingSource<Int, MediaEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertMedia(items: List<MediaEntity>)

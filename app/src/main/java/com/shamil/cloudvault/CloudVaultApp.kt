@@ -8,6 +8,7 @@ import coil.decode.VideoFrameDecoder
 import coil.disk.DiskCache
 import coil.memory.MemoryCache
 import coil.util.DebugLogger
+import com.shamil.cloudvault.utils.Constants
 
 class CloudVaultApp : Application(), ImageLoaderFactory {
     override fun newImageLoader(): ImageLoader {
@@ -17,15 +18,16 @@ class CloudVaultApp : Application(), ImageLoaderFactory {
             }
             .memoryCache {
                 MemoryCache.Builder(this)
-                    .maxSizePercent(0.40)  // Increased from 0.25 for better performance
+                    .maxSizePercent(Constants.MEMORY_CACHE_SIZE_PERCENT)
                     .build()
             }
             .diskCache {
                 DiskCache.Builder()
-                    .directory(this.cacheDir.resolve("image_cache"))
-                    .maxSizePercent(0.05)  // Increased from 0.02
+                    .directory(this.cacheDir.resolve(Constants.IMAGE_CACHE_DIR))
+                    .maxSizePercent(Constants.DISK_CACHE_SIZE_PERCENT)
                     .build()
             }
+            .allowHardware(true)
             .crossfade(true)
             .apply {
                 // Only enable debug logging in debug builds
