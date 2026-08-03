@@ -155,7 +155,7 @@ private fun GalleryContent(
     onFullScreenToggle: (Boolean) -> Unit
 ) {
     val context = LocalContext.current
-    val pagerState = rememberPagerState { GalleryTab.entries.size }
+    val pagerState = rememberPagerState(initialPage = GalleryTab.Albums.ordinal) { GalleryTab.entries.size }
     val coroutineScope = rememberCoroutineScope()
 
     val favoriteItemsPaging = viewModel.favoriteItemsPaging.collectAsLazyPagingItems()
