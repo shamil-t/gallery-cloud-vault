@@ -33,6 +33,7 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
+import androidx.paging.compose.LazyPagingItems
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
 import com.shamil.cloudvault.data.GalleryRepository
@@ -43,17 +44,19 @@ import java.text.SimpleDateFormat
 import java.util.*
 
 @Composable
-fun MediaViewer(
-    items: List<GalleryItem>,
+fun MediaViewerPaging(
+    items: LazyPagingItems<GalleryItem>,
     initialIndex: Int,
     onBack: () -> Unit
 ) {
-    val pagerState = rememberPagerState(initialPage = initialIndex) { items.size }
+    val pagerState = rememberPagerState(initialPage = initialIndex) { items.itemCount }
     var showDetails by remember { mutableStateOf(false) }
     var isZoomed by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val repository = remember { GalleryRepository(context) }
+
+    val currentItem = if (pagerState.currentPage < items.itemCount) items[pagerState.currentPage] else null
 
     BackHandler {
         onBack()
@@ -70,8 +73,8 @@ fun MediaViewer(
             pageSpacing = 16.dp,
             userScrollEnabled = !isZoomed
         ) { page ->
-            if (page < items.size) {
-                val item = items[page]
+            val item = items[page]
+            if (item != null) {
                 if (item.isVideo) {
                     VideoMediaItem(
                         item = item,
@@ -82,6 +85,10 @@ fun MediaViewer(
                         item = item,
                         onZoomChange = { isZoomed = it }
                     )
+                }
+            } else {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = Color.White)
                 }
             }
         }
@@ -102,47 +109,41 @@ fun MediaViewer(
                 )
             }
             Spacer(modifier = Modifier.weight(1f))
-            IconButton(onClick = {
-                val currentItem = items[pagerState.currentPage]
-                shareMedia(context, currentItem)
-            }) {
-                Icon(Icons.Default.Share, contentDescription = "Share", tint = Color.White)
-            }
-            IconButton(onClick = {
-                val currentItem = items[pagerState.currentPage]
-                coroutineScope.launch {
-                    repository.toggleFavorite(currentItem.id, !currentItem.isFavorite)
+            
+            if (currentItem != null) {
+                IconButton(onClick = { shareMedia(context, currentItem) }) {
+                    Icon(Icons.Default.Share, contentDescription = "Share", tint = Color.White)
                 }
-            }) {
-                val isFavorite = if (pagerState.currentPage < items.size) items[pagerState.currentPage].isFavorite else false
-                Icon(
-                    imageVector = if (isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
-                    contentDescription = "Favorite",
-                    tint = if (isFavorite) MaterialTheme.colorScheme.error else Color.White
-                )
-            }
-            IconButton(onClick = { showDetails = true }) {
-                Icon(Icons.Default.Info, contentDescription = "Details", tint = Color.White)
-            }
-            IconButton(onClick = {
-                val currentItem = items[pagerState.currentPage]
-                coroutineScope.launch {
-                    // In a real app, we'd use MediaStore to delete the file
-                    // For now, we'll just remove it from our local DB
-                    repository.deleteMedia(currentItem.id)
-                    // If it was the last item, go back
-                    if (items.size <= 1) {
-                        onBack()
+                IconButton(onClick = {
+                    coroutineScope.launch {
+                        repository.toggleFavorite(currentItem.id, !currentItem.isFavorite)
                     }
+                }) {
+                    Icon(
+                        imageVector = if (currentItem.isFavorite) Icons.Default.Favorite else Icons.Default.FavoriteBorder,
+                        contentDescription = "Favorite",
+                        tint = if (currentItem.isFavorite) MaterialTheme.colorScheme.error else Color.White
+                    )
                 }
-            }) {
-                Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color.White)
+                IconButton(onClick = { showDetails = true }) {
+                    Icon(Icons.Default.Info, contentDescription = "Details", tint = Color.White)
+                }
+                IconButton(onClick = {
+                    coroutineScope.launch {
+                        repository.deleteMedia(currentItem.id)
+                        if (items.itemCount <= 1) {
+                            onBack()
+                        }
+                    }
+                }) {
+                    Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color.White)
+                }
             }
         }
 
-        if (showDetails && pagerState.currentPage < items.size) {
+        if (showDetails && currentItem != null) {
             MediaDetailsBottomSheet(
-                item = items[pagerState.currentPage],
+                item = currentItem,
                 onDismiss = { showDetails = false }
             )
         }
@@ -190,7 +191,6 @@ fun ZoomableImage(
 
                             if (pastTouchSlop) {
                                 if (scale > 1f || zoomChange != 1f) {
-                                    // If we are zoomed in or starting to zoom, we consume the events
                                     val newScale = (scale * zoomChange).coerceIn(1f, 5f)
                                     val newOffset = if (newScale > 1f) offset + panChange else Offset.Zero
                                     
@@ -213,11 +213,12 @@ fun ZoomableImage(
         AsyncImage(
             model = ImageRequest.Builder(LocalContext.current)
                 .data(item.uri)
-                .crossfade(true)
+                .crossfade(500) // Slightly longer crossfade for full-screen images
                 .build(),
             contentDescription = item.name,
             modifier = Modifier
                 .fillMaxSize()
+                .background(Color.Black) // Keep it black for full screen
                 .graphicsLayer(
                     scaleX = scale,
                     scaleY = scale,
@@ -313,11 +314,10 @@ fun VideoMediaItem(
         ExoPlayer.Builder(context).build().apply {
             setMediaItem(MediaItem.fromUri(item.uri))
             prepare()
-            playWhenReady = false // Don't autoplay by default
+            playWhenReady = false
         }
     }
 
-    // Handle playback based on active state
     LaunchedEffect(isActive) {
         if (!isActive) {
             exoPlayer.pause()
@@ -336,7 +336,6 @@ fun VideoMediaItem(
                 PlayerView(context).apply {
                     player = exoPlayer
                     useController = true
-                    // Ensure the player doesn't aggressively steal all touches
                     setBackgroundColor(android.graphics.Color.BLACK)
                 }
             },

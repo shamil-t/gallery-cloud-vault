@@ -11,8 +11,10 @@ import androidx.paging.Pager
 import androidx.paging.PagingConfig
 import androidx.paging.PagingData
 import androidx.paging.map
+import com.shamil.cloudvault.data.local.AlbumSummary
 import com.shamil.cloudvault.data.local.GalleryDatabase
 import com.shamil.cloudvault.data.local.MediaEntity
+import com.shamil.cloudvault.data.local.MediaThumbnail
 import com.shamil.cloudvault.domain.repository.IGalleryRepository
 import com.shamil.cloudvault.model.GalleryItem
 import com.shamil.cloudvault.utils.Constants
@@ -27,108 +29,63 @@ class GalleryRepository(private val context: Context) : IGalleryRepository {
     private val dao = database.galleryDao()
     private val tag = Constants.TAG_REPOSITORY
 
-    override fun getGalleryItems(): Flow<List<GalleryItem>> = dao.getAllMedia()
-        .map { entities ->
-            entities.map { it.toDomain() }
-        }
-        .onStart {
-            // Trigger sync when starting to collect
-            Logger.d(tag, "Starting to collect gallery items, triggering sync")
-            syncMediaStore()
-        }
-        .catch { exception ->
-            Logger.e(tag, "Error collecting gallery items", exception)
-        }
-        .flowOn(Dispatchers.IO)
+    private val pagingConfig = PagingConfig(
+        pageSize = Constants.PAGE_SIZE,
+        prefetchDistance = Constants.PREFETCH_DISTANCE,
+        initialLoadSize = Constants.INITIAL_LOAD_SIZE,
+        enablePlaceholders = true
+    )
 
-    override fun getGalleryItemsPaging(): Flow<PagingData<GalleryItem>> = Pager(
-        config = PagingConfig(
-            pageSize = Constants.PAGE_SIZE,
-            prefetchDistance = Constants.PREFETCH_DISTANCE,
-            initialLoadSize = Constants.INITIAL_LOAD_SIZE
-        ),
+    override fun getGalleryItems(): Flow<PagingData<GalleryItem>> = Pager(
+        config = pagingConfig,
         pagingSourceFactory = { dao.getAllMediaPaging() }
     ).flow.map { pagingData ->
-        pagingData.map { it.toDomain() }
+        pagingData.map { it.toGalleryItem() }
     }
 
-    override fun getBinItems(): Flow<List<GalleryItem>> = dao.getBinMedia()
-        .map { entities ->
-            entities.map { it.toDomain() }
-        }
-        .flowOn(Dispatchers.IO)
-
-    override fun getBinItemsPaging(): Flow<PagingData<GalleryItem>> = Pager(
-        config = PagingConfig(
-            pageSize = Constants.PAGE_SIZE,
-            prefetchDistance = Constants.PREFETCH_DISTANCE,
-            initialLoadSize = Constants.INITIAL_LOAD_SIZE
-        ),
+    override fun getBinItems(): Flow<PagingData<GalleryItem>> = Pager(
+        config = pagingConfig,
         pagingSourceFactory = { dao.getBinMediaPaging() }
     ).flow.map { pagingData ->
-        pagingData.map { it.toDomain() }
+        pagingData.map { it.toGalleryItem() }
     }
 
-    override fun getFavoriteItemsPaging(): Flow<PagingData<GalleryItem>> = Pager(
-        config = PagingConfig(
-            pageSize = Constants.PAGE_SIZE,
-            prefetchDistance = Constants.PREFETCH_DISTANCE,
-            initialLoadSize = Constants.INITIAL_LOAD_SIZE
-        ),
+    override fun getFavoriteItems(): Flow<PagingData<GalleryItem>> = Pager(
+        config = pagingConfig,
         pagingSourceFactory = { dao.getFavoriteMediaPaging() }
     ).flow.map { pagingData ->
-        pagingData.map { it.toDomain() }
+        pagingData.map { it.toGalleryItem() }
     }
+
+    override fun getMediaByFolder(folder: String): Flow<PagingData<GalleryItem>> = Pager(
+        config = pagingConfig,
+        pagingSourceFactory = { dao.getMediaByFolderPaging(folder) }
+    ).flow.map { pagingData ->
+        pagingData.map { it.toGalleryItem() }
+    }
+
+    override fun searchMedia(query: String): Flow<PagingData<GalleryItem>> = Pager(
+        config = pagingConfig,
+        pagingSourceFactory = { dao.searchMediaPaging(query) }
+    ).flow.map { pagingData ->
+        pagingData.map { it.toGalleryItem() }
+    }
+
+    override fun getAlbums(): Flow<List<AlbumSummary>> = dao.getAlbumsSummary()
 
     override suspend fun syncMediaStore() = withContext(Dispatchers.IO) {
         try {
-            Logger.d(tag, "Syncing media store")
-            val mediaStoreItems = fetchMediaStoreItems()
-            Logger.d(tag, "Fetched ${mediaStoreItems.size} items from MediaStore")
-            dao.syncMedia(mediaStoreItems)
-            Logger.i(tag, "Media sync completed successfully")
+            Logger.d(tag, "Syncing media store incrementally")
+            val currentGeneration = System.currentTimeMillis()
+            fetchAndSyncMediaStoreItems(currentGeneration)
+            dao.deleteOrphanedMedia(currentGeneration)
+            Logger.i(tag, "Incremental media sync completed")
         } catch (e: Exception) {
             Logger.e(tag, "Error syncing media store", e)
         }
     }
 
-    fun observeMediaStore(): Flow<Unit> = callbackFlow {
-        Logger.d(tag, "Registering media store observer")
-        val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
-            override fun onChange(selfChange: Boolean) {
-                Logger.d(tag, "Media store changed")
-                trySend(Unit)
-            }
-        }
-
-        try {
-            context.contentResolver.registerContentObserver(
-                MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-                true,
-                observer
-            )
-            context.contentResolver.registerContentObserver(
-                MediaStore.Video.Media.EXTERNAL_CONTENT_URI,
-                true,
-                observer
-            )
-            Logger.d(tag, "Media store observers registered")
-        } catch (e: Exception) {
-            Logger.e(tag, "Error registering content observer", e)
-        }
-
-        awaitClose {
-            try {
-                context.contentResolver.unregisterContentObserver(observer)
-                Logger.d(tag, "Media store observers unregistered")
-            } catch (e: Exception) {
-                Logger.e(tag, "Error unregistering content observer", e)
-            }
-        }
-    }.conflate()
-
-    private fun fetchMediaStoreItems(): List<MediaEntity> {
-        val list = mutableListOf<MediaEntity>()
+    private suspend fun fetchAndSyncMediaStoreItems(generation: Long) {
         val collection = MediaStore.Files.getContentUri("external")
         val projection = arrayOf(
             MediaStore.Files.FileColumns._ID,
@@ -149,115 +106,119 @@ class GalleryRepository(private val context: Context) : IGalleryRepository {
             MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO.toString()
         )
 
-        try {
-            context.contentResolver.query(
-                collection,
-                projection,
-                selection,
-                args,
-                "${MediaStore.Files.FileColumns.DATE_ADDED} DESC"
-            )?.use { cursor ->
-                val idCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns._ID)
-                val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DISPLAY_NAME)
-                val typeCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.MEDIA_TYPE)
-                val folderCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.BUCKET_DISPLAY_NAME)
-                val dateCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DATE_ADDED)
-                val sizeCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.SIZE)
-                val pathCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DATA)
-                val mimeCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.MIME_TYPE)
-                val widthCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.WIDTH)
-                val heightCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.HEIGHT)
+        val batchSize = 500
+        val batch = mutableListOf<MediaEntity>()
 
-                while (cursor.moveToNext()) {
-                    try {
-                        val id = cursor.getLong(idCol)
-                        val name = cursor.getString(nameCol) ?: "Unknown"
-                        val type = cursor.getInt(typeCol)
-                        val folder = cursor.getString(folderCol) ?: "Unknown"
-                        val date = cursor.getLong(dateCol)
-                        val size = cursor.getLong(sizeCol)
-                        val path = cursor.getString(pathCol) ?: ""
-                        val mimeType = cursor.getString(mimeCol) ?: "image/*"
-                        val width = cursor.getInt(widthCol)
-                        val height = cursor.getInt(heightCol)
+        context.contentResolver.query(
+            collection,
+            projection,
+            selection,
+            args,
+            "${MediaStore.Files.FileColumns.DATE_ADDED} DESC"
+        )?.use { cursor ->
+            val idCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns._ID)
+            val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DISPLAY_NAME)
+            val typeCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.MEDIA_TYPE)
+            val folderCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.BUCKET_DISPLAY_NAME)
+            val dateCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DATE_ADDED)
+            val sizeCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.SIZE)
+            val pathCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DATA)
+            val mimeCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.MIME_TYPE)
+            val widthCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.WIDTH)
+            val heightCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.HEIGHT)
 
-                        val uri = ContentUris.withAppendedId(collection, id)
+            while (cursor.moveToNext()) {
+                val id = cursor.getLong(idCol)
+                val name = cursor.getString(nameCol) ?: "Unknown"
+                val type = cursor.getInt(typeCol)
+                val folder = cursor.getString(folderCol) ?: "Unknown"
+                val date = cursor.getLong(dateCol)
+                val size = cursor.getLong(sizeCol)
+                val path = cursor.getString(pathCol) ?: ""
+                val mimeType = cursor.getString(mimeCol) ?: "image/*"
+                val width = cursor.getInt(widthCol)
+                val height = cursor.getInt(heightCol)
 
-                        list.add(
-                            MediaEntity(
-                                id = id,
-                                name = name,
-                                uri = uri.toString(),
-                                folder = folder,
-                                date = date,
-                                isVideo = type == MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO,
-                                size = size,
-                                path = path,
-                                mimeType = mimeType,
-                                width = width,
-                                height = height
-                            )
-                        )
-                    } catch (e: Exception) {
-                        Logger.w(tag, "Error processing media item", e)
-                    }
+                val uri = ContentUris.withAppendedId(collection, id)
+
+                batch.add(
+                    MediaEntity(
+                        id = id,
+                        name = name,
+                        uri = uri.toString(),
+                        folder = folder,
+                        date = date,
+                        isVideo = type == MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO,
+                        size = size,
+                        path = path,
+                        mimeType = mimeType,
+                        width = width,
+                        height = height,
+                        syncGeneration = generation
+                    )
+                )
+
+                if (batch.size >= batchSize) {
+                    dao.upsertMediaBatch(batch)
+                    batch.clear()
                 }
-            } ?: Logger.w(tag, "ContentResolver query returned null")
-        } catch (e: Exception) {
-            Logger.e(tag, "Error fetching media store items", e)
+            }
+            if (batch.isNotEmpty()) {
+                dao.upsertMediaBatch(batch)
+            }
         }
-        return list
     }
 
-    override suspend fun toggleFavorite(id: Long, isFavorite: Boolean) = withContext(Dispatchers.IO) {
-        try {
-            dao.updateFavorite(id, isFavorite)
-            Logger.d(tag, "Toggled favorite for item $id to $isFavorite")
-        } catch (e: Exception) {
-            Logger.e(tag, "Error toggling favorite", e)
+    fun observeMediaStore(): Flow<Unit> = callbackFlow {
+        val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
+            override fun onChange(selfChange: Boolean) {
+                trySend(Unit)
+            }
         }
+        context.contentResolver.registerContentObserver(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, true, observer)
+        context.contentResolver.registerContentObserver(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, true, observer)
+        awaitClose { context.contentResolver.unregisterContentObserver(observer) }
+    }.conflate()
+
+    override suspend fun toggleFavorite(id: Long, isFavorite: Boolean) = withContext(Dispatchers.IO) {
+        dao.updateFavorite(id, isFavorite)
     }
 
     override suspend fun moveToBin(id: Long) = withContext(Dispatchers.IO) {
-        try {
-            dao.moveToBin(id, System.currentTimeMillis())
-            Logger.d(tag, "Moved item $id to bin")
-        } catch (e: Exception) {
-            Logger.e(tag, "Error moving to bin", e)
-        }
+        dao.moveToBin(id, System.currentTimeMillis())
     }
 
     override suspend fun restoreFromBin(id: Long) = withContext(Dispatchers.IO) {
-        try {
-            dao.restoreFromBin(id)
-            Logger.d(tag, "Restored item $id from bin")
-        } catch (e: Exception) {
-            Logger.e(tag, "Error restoring from bin", e)
-        }
+        dao.restoreFromBin(id)
     }
 
     override suspend fun deletePermanently(id: Long) = withContext(Dispatchers.IO) {
-        try {
-            dao.deleteMediaById(id)
-            Logger.d(tag, "Permanently deleted item $id")
-        } catch (e: Exception) {
-            Logger.e(tag, "Error permanently deleting", e)
-        }
+        dao.deleteMediaById(id)
     }
 
     override suspend fun cleanupBin() = withContext(Dispatchers.IO) {
-        try {
-            val threshold = System.currentTimeMillis() - (30 * 24 * 60 * 60 * 1000L)
-            dao.deleteOldBinItems(threshold)
-            Logger.d(tag, "Cleaned up old bin items")
-        } catch (e: Exception) {
-            Logger.e(tag, "Error cleaning up bin", e)
-        }
+        val threshold = System.currentTimeMillis() - (30 * 24 * 60 * 60 * 1000L)
+        dao.deleteOldBinItems(threshold)
     }
 
-    override suspend fun deleteMedia(id: Long) = withContext(Dispatchers.IO) {
-        moveToBin(id)
-    }
+    override suspend fun deleteMedia(id: Long) = moveToBin(id)
+
+    override suspend fun getMediaById(id: Long): GalleryItem? = dao.getMediaById(id)?.toDomain()
+
+    private fun MediaThumbnail.toGalleryItem() = GalleryItem(
+        id = this.id,
+        name = "", // Not needed for grid
+        uri = Uri.parse(this.uri),
+        folder = "",
+        date = this.date,
+        isVideo = this.isVideo,
+        size = 0,
+        path = "",
+        mimeType = "",
+        width = 0,
+        height = 0,
+        isFavorite = this.isFavorite
+    )
 
     private fun MediaEntity.toDomain() = GalleryItem(
         id = this.id,

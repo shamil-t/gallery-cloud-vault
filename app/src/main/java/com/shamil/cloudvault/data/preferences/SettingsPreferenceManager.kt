@@ -20,9 +20,14 @@ enum class AppTheme {
     SYSTEM, LIGHT, DARK
 }
 
+enum class AppThemeStyle {
+    AZURE, FOREST, SUNSET, LAVENDER
+}
+
 class SettingsPreferenceManager(private val context: Context) {
 
     private val themeKey = stringPreferencesKey(Constants.PREF_THEME_KEY)
+    private val themeStyleKey = stringPreferencesKey(Constants.PREF_THEME_STYLE_KEY)
     private val dynamicColorKey = booleanPreferencesKey(Constants.PREF_DYNAMIC_COLOR_KEY)
     private val biometricLockKey = booleanPreferencesKey(Constants.PREF_BIOMETRIC_LOCK_KEY)
     private val gridColumnCountKey = intPreferencesKey(Constants.PREF_GRID_COLUMN_COUNT_KEY)
@@ -37,6 +42,19 @@ class SettingsPreferenceManager(private val context: Context) {
             } catch (e: Exception) {
                 Logger.w("SettingsPreferenceManager", "Invalid theme value, using default")
                 AppTheme.SYSTEM
+            }
+        }
+
+    val themeStyle: Flow<AppThemeStyle> = context.dataStore.data
+        .catch { exception ->
+            Logger.e("SettingsPreferenceManager", "Error reading theme style preference", exception)
+        }
+        .map { preferences ->
+            try {
+                AppThemeStyle.valueOf(preferences[themeStyleKey] ?: AppThemeStyle.AZURE.name)
+            } catch (e: Exception) {
+                Logger.w("SettingsPreferenceManager", "Invalid theme style value, using default")
+                AppThemeStyle.AZURE
             }
         }
 
@@ -72,6 +90,17 @@ class SettingsPreferenceManager(private val context: Context) {
             Logger.d("SettingsPreferenceManager", "Theme set to: ${theme.name}")
         } catch (e: Exception) {
             Logger.e("SettingsPreferenceManager", "Error setting theme", e)
+        }
+    }
+
+    suspend fun setThemeStyle(style: AppThemeStyle) {
+        try {
+            context.dataStore.edit { preferences ->
+                preferences[themeStyleKey] = style.name
+            }
+            Logger.d("SettingsPreferenceManager", "Theme style set to: ${style.name}")
+        } catch (e: Exception) {
+            Logger.e("SettingsPreferenceManager", "Error setting theme style", e)
         }
     }
 

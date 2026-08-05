@@ -3,6 +3,7 @@ package com.shamil.cloudvault.ui.settings
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
@@ -10,10 +11,12 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.shamil.cloudvault.data.preferences.AppTheme
+import com.shamil.cloudvault.data.preferences.AppThemeStyle
 import com.shamil.cloudvault.utils.Constants
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -22,22 +25,30 @@ fun SettingsScreen(
     viewModel: SettingsViewModel = viewModel()
 ) {
     val theme by viewModel.theme.collectAsStateWithLifecycle()
+    val themeStyle by viewModel.themeStyle.collectAsStateWithLifecycle()
     val dynamicColor by viewModel.dynamicColor.collectAsStateWithLifecycle()
     val biometricLock by viewModel.biometricLock.collectAsStateWithLifecycle()
     val gridColumnCount by viewModel.gridColumnCount.collectAsStateWithLifecycle()
 
     var showThemeDialog by remember { mutableStateOf(false) }
+    var showThemeStyleDialog by remember { mutableStateOf(false) }
+    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+    val uriHandler = LocalUriHandler.current
 
     Scaffold(
+        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         topBar = {
-            LargeTopAppBar(title = { Text("Settings") })
+            LargeTopAppBar(
+                title = { Text("Settings") },
+                scrollBehavior = scrollBehavior
+            )
         }
     ) { padding ->
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding),
-            contentPadding = PaddingValues(16.dp),
+            contentPadding = PaddingValues(start = 16.dp, top = 16.dp, end = 16.dp, bottom = 80.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             item {
@@ -47,6 +58,12 @@ fun SettingsScreen(
                         subtitle = theme.name.lowercase().replaceFirstChar { it.uppercase() },
                         icon = Icons.Default.Palette,
                         onClick = { showThemeDialog = true }
+                    )
+                    SettingsClickableItem(
+                        title = "Theme Style",
+                        subtitle = themeStyle.name.lowercase().replaceFirstChar { it.uppercase() },
+                        icon = Icons.Default.Palette,
+                        onClick = { showThemeStyleDialog = true }
                     )
                     SettingsSwitchItem(
                         title = "Dynamic Color",
@@ -86,7 +103,7 @@ fun SettingsScreen(
                         is UpdateState.Idle -> {
                             SettingsClickableItem(
                                 title = "Check for Updates",
-                                subtitle = "Current version: 1.0.0",
+                                subtitle = "Current version: ${viewModel.currentVersionName}",
                                 icon = Icons.Default.Update,
                                 onClick = { viewModel.checkForUpdates() }
                             )
@@ -152,9 +169,26 @@ fun SettingsScreen(
                 SettingsSection(title = "About") {
                     SettingsClickableItem(
                         title = "Version",
-                        subtitle = "1.0.0",
+                        subtitle = viewModel.currentVersionName,
                         icon = Icons.Default.Info,
                         onClick = {}
+                    )
+                }
+            }
+
+            item {
+                SettingsSection(title = "Developer Info") {
+                    SettingsClickableItem(
+                        title = "Name",
+                        subtitle = "SHAMIL T",
+                        icon = Icons.Default.Person,
+                        onClick = {}
+                    )
+                    SettingsClickableItem(
+                        title = "GitHub",
+                        subtitle = "https://github.com/shamil-t/gallery-cloud-vault",
+                        icon = Icons.Default.Code,
+                        onClick = { uriHandler.openUri("https://github.com/shamil-t/gallery-cloud-vault") }
                     )
                 }
             }
@@ -169,6 +203,17 @@ fun SettingsScreen(
                 showThemeDialog = false
             },
             onDismiss = { showThemeDialog = false }
+        )
+    }
+
+    if (showThemeStyleDialog) {
+        ThemeStyleSelectionDialog(
+            currentStyle = themeStyle,
+            onStyleSelected = {
+                viewModel.setThemeStyle(it)
+                showThemeStyleDialog = false
+            },
+            onDismiss = { showThemeStyleDialog = false }
         )
     }
 }
@@ -300,3 +345,41 @@ fun ThemeSelectionDialog(
         }
     )
 }
+
+@Composable
+fun ThemeStyleSelectionDialog(
+    currentStyle: AppThemeStyle,
+    onStyleSelected: (AppThemeStyle) -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Select Theme Style") },
+        text = {
+            Column {
+                AppThemeStyle.entries.forEach { style ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onStyleSelected(style) }
+                            .padding(vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = (style == currentStyle),
+                            onClick = { onStyleSelected(style) }
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(text = style.name.lowercase().replaceFirstChar { it.uppercase() })
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
+}
+

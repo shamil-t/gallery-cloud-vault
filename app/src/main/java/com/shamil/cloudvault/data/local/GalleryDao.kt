@@ -6,26 +6,65 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface GalleryDao {
-    @Query("SELECT * FROM media_items WHERE isDeleted = 0 ORDER BY date DESC")
-    fun getAllMedia(): Flow<List<MediaEntity>>
+    @Query("SELECT id, uri, isVideo, isFavorite, date FROM media_items WHERE isDeleted = 0 ORDER BY date DESC")
+    fun getAllMediaPaging(): PagingSource<Int, MediaThumbnail>
 
-    @Query("SELECT * FROM media_items WHERE isDeleted = 0 ORDER BY date DESC")
-    fun getAllMediaPaging(): PagingSource<Int, MediaEntity>
+    @Query("SELECT id, uri, isVideo, isFavorite, date FROM media_items WHERE isDeleted = 1 ORDER BY deletedAt DESC")
+    fun getBinMediaPaging(): PagingSource<Int, MediaThumbnail>
 
-    @Query("SELECT * FROM media_items WHERE isDeleted = 1 ORDER BY deletedAt DESC")
-    fun getBinMedia(): Flow<List<MediaEntity>>
+    @Query("SELECT id, uri, isVideo, isFavorite, date FROM media_items WHERE isDeleted = 0 AND isFavorite = 1 ORDER BY date DESC")
+    fun getFavoriteMediaPaging(): PagingSource<Int, MediaThumbnail>
 
-    @Query("SELECT * FROM media_items WHERE isDeleted = 1 ORDER BY deletedAt DESC")
-    fun getBinMediaPaging(): PagingSource<Int, MediaEntity>
+    @Query("SELECT id, uri, isVideo, isFavorite, date FROM media_items WHERE isDeleted = 0 AND folder = :folderName ORDER BY date DESC")
+    fun getMediaByFolderPaging(folderName: String): PagingSource<Int, MediaThumbnail>
 
-    @Query("SELECT * FROM media_items WHERE isDeleted = 0 AND isFavorite = 1 ORDER BY date DESC")
-    fun getFavoriteMediaPaging(): PagingSource<Int, MediaEntity>
+    @Query("""
+        SELECT folder, COUNT(*) as itemCount, 
+        (SELECT uri FROM media_items m2 WHERE m2.folder = m1.folder AND m2.isDeleted = 0 ORDER BY m2.date DESC LIMIT 1) as coverUri,
+        (SELECT isVideo FROM media_items m2 WHERE m2.folder = m1.folder AND m2.isDeleted = 0 ORDER BY m2.date DESC LIMIT 1) as isVideo,
+        (SELECT id FROM media_items m2 WHERE m2.folder = m1.folder AND m2.isDeleted = 0 ORDER BY m2.date DESC LIMIT 1) as latestId
+        FROM media_items m1
+        WHERE isDeleted = 0
+        GROUP BY folder
+        ORDER BY MAX(date) DESC
+    """)
+    fun getAlbumsSummary(): Flow<List<AlbumSummary>>
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertMedia(items: List<MediaEntity>)
+    @Query("SELECT id, uri, isVideo, isFavorite, date FROM media_items WHERE isDeleted = 0 AND name LIKE '%' || :query || '%' ORDER BY date DESC")
+    fun searchMediaPaging(query: String): PagingSource<Int, MediaThumbnail>
 
-    @Query("DELETE FROM media_items WHERE id NOT IN (:ids)")
-    suspend fun deleteRemovedMedia(ids: List<Long>)
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertMediaIgnore(item: MediaEntity): Long
+
+    @Query("""
+        UPDATE media_items SET 
+        name = :name, uri = :uri, folder = :folder, date = :date, 
+        isVideo = :isVideo, size = :size, path = :path, mimeType = :mimeType, 
+        width = :width, height = :height, syncGeneration = :syncGeneration 
+        WHERE id = :id
+    """)
+    suspend fun updateMediaStoreFields(
+        id: Long, name: String, uri: String, folder: String, date: Long, 
+        isVideo: Boolean, size: Long, path: String, mimeType: String, 
+        width: Int, height: Int, syncGeneration: Long
+    )
+
+    @Transaction
+    suspend fun upsertMediaBatch(items: List<MediaEntity>) {
+        items.forEach { item ->
+            val rowId = insertMediaIgnore(item)
+            if (rowId == -1L) {
+                updateMediaStoreFields(
+                    item.id, item.name, item.uri, item.folder, item.date,
+                    item.isVideo, item.size, item.path, item.mimeType,
+                    item.width, item.height, item.syncGeneration
+                )
+            }
+        }
+    }
+
+    @Query("DELETE FROM media_items WHERE syncGeneration < :currentGeneration AND isDeleted = 0")
+    suspend fun deleteOrphanedMedia(currentGeneration: Long)
 
     @Query("UPDATE media_items SET isFavorite = :isFavorite WHERE id = :id")
     suspend fun updateFavorite(id: Long, isFavorite: Boolean)
@@ -42,32 +81,6 @@ interface GalleryDao {
     @Query("DELETE FROM media_items WHERE isDeleted = 1 AND deletedAt < :timestamp")
     suspend fun deleteOldBinItems(timestamp: Long)
 
-    @Query("SELECT id FROM media_items WHERE isFavorite = 1")
-    suspend fun getFavoriteIds(): List<Long>
-
-    @Query("SELECT id FROM media_items WHERE isHidden = 1")
-    suspend fun getHiddenIds(): List<Long>
-
-    @Query("SELECT * FROM media_items WHERE isDeleted = 1")
-    suspend fun getDeletedMedia(): List<MediaEntity>
-
-    @Transaction
-    suspend fun syncMedia(items: List<MediaEntity>) {
-        val favorites = getFavoriteIds().toSet()
-        val hidden = getHiddenIds().toSet()
-        val deleted = getDeletedMedia().associateBy { it.id }
-
-        val updatedItems = items.map { item ->
-            val deletedItem = deleted[item.id]
-            item.copy(
-                isFavorite = favorites.contains(item.id),
-                isHidden = hidden.contains(item.id),
-                isDeleted = deletedItem?.isDeleted ?: false,
-                deletedAt = deletedItem?.deletedAt
-            )
-        }
-
-        insertMedia(updatedItems)
-        deleteRemovedMedia(items.map { it.id })
-    }
+    @Query("SELECT * FROM media_items WHERE id = :id")
+    suspend fun getMediaById(id: Long): MediaEntity?
 }

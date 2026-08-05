@@ -7,18 +7,20 @@ import androidx.paging.PagingData
 import androidx.paging.cachedIn
 import androidx.paging.insertSeparators
 import androidx.paging.map
-import com.shamil.cloudvault.data.GalleryRepository
-import com.shamil.cloudvault.data.preferences.SettingsPreferenceManager
-import com.shamil.cloudvault.data.worker.BinCleanupWorker
-import com.shamil.cloudvault.domain.model.MediaResult
-import com.shamil.cloudvault.domain.usecase.*
-import com.shamil.cloudvault.model.GalleryItem
-import com.shamil.cloudvault.utils.Constants
-import kotlinx.coroutines.flow.*
-import kotlinx.coroutines.launch
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
+import com.shamil.cloudvault.data.GalleryRepository
+import com.shamil.cloudvault.data.local.AlbumSummary
+import com.shamil.cloudvault.data.preferences.SettingsPreferenceManager
+import com.shamil.cloudvault.data.worker.BinCleanupWorker
+import com.shamil.cloudvault.domain.usecase.*
+import com.shamil.cloudvault.model.GalleryItem
+import com.shamil.cloudvault.utils.Constants
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.launch
 import java.util.concurrent.TimeUnit
 
 sealed class BinUiModel {
@@ -26,6 +28,7 @@ sealed class BinUiModel {
     data class Header(val daysLeft: Int) : BinUiModel()
 }
 
+@OptIn(ExperimentalCoroutinesApi::class, FlowPreview::class)
 class GalleryViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = GalleryRepository(application)
     private val preferenceManager = SettingsPreferenceManager(application)
@@ -40,6 +43,7 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
         scheduleBinCleanup()
         viewModelScope.launch {
             cleanupBinUseCase()
+            // Periodic sync would be handled by WorkManager or ContentObserver
         }
     }
 
@@ -67,13 +71,20 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
             initialValue = Constants.DEFAULT_GRID_COLUMN_COUNT
         )
 
-    val galleryItemsPaging: Flow<PagingData<GalleryItem>> = repository.getGalleryItemsPaging()
+    val galleryItemsPaging: Flow<PagingData<GalleryItem>> = getGalleryItemsUseCase()
         .cachedIn(viewModelScope)
 
-    val favoriteItemsPaging: Flow<PagingData<GalleryItem>> = repository.getFavoriteItemsPaging()
+    val favoriteItemsPaging: Flow<PagingData<GalleryItem>> = repository.getFavoriteItems()
         .cachedIn(viewModelScope)
 
-    val binUiStatePaging: Flow<PagingData<BinUiModel>> = repository.getBinItemsPaging()
+    val albums: Flow<List<AlbumSummary>> = repository.getAlbums()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
+
+    val binUiStatePaging: Flow<PagingData<BinUiModel>> = repository.getBinItems()
         .map { pagingData ->
             pagingData.map { BinUiModel.Item(it) }
                 .insertSeparators { before, after ->
@@ -92,15 +103,21 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
         }
         .cachedIn(viewModelScope)
 
-    val allGalleryItems: Flow<List<GalleryItem>> = getGalleryItemsUseCase()
-        .map { result ->
-            if (result is MediaResult.Success) result.data else emptyList()
+    private val _searchQuery = MutableStateFlow("")
+    val searchResults: Flow<PagingData<GalleryItem>> = _searchQuery
+        .debounce(300)
+        .flatMapLatest { query ->
+            if (query.isEmpty()) emptyFlow()
+            else repository.searchMedia(query)
         }
-        .stateIn(
-            scope = viewModelScope,
-            started = SharingStarted.WhileSubscribed(5000),
-            initialValue = emptyList()
-        )
+        .cachedIn(viewModelScope)
+
+    fun search(query: String) {
+        _searchQuery.value = query
+    }
+
+    fun getMediaByFolder(folder: String): Flow<PagingData<GalleryItem>> = 
+        repository.getMediaByFolder(folder).cachedIn(viewModelScope)
 
     fun refresh() {
         viewModelScope.launch {
@@ -169,5 +186,6 @@ class GalleryViewModel(application: Application) : AndroidViewModel(application)
             preferenceManager.setGridColumnCount(count)
         }
     }
-}
 
+    suspend fun getMediaById(id: Long): GalleryItem? = repository.getMediaById(id)
+}

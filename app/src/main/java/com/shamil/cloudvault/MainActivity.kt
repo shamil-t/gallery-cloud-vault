@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.material3.Text
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -34,6 +35,7 @@ import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import com.shamil.cloudvault.ui.screen.HomeScreen
 import com.shamil.cloudvault.ui.settings.SettingsViewModel
 import com.shamil.cloudvault.ui.theme.CloudVaultTheme
+import com.shamil.cloudvault.data.preferences.AppThemeStyle
 import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
@@ -52,10 +54,12 @@ class MainActivity : ComponentActivity() {
         setContent {
             // Provide theme settings
             val theme by settingsViewModel.theme.collectAsState()
+            val themeStyle by settingsViewModel.themeStyle.collectAsState()
             val dynamicColor by settingsViewModel.dynamicColor.collectAsState()
 
             CloudVaultTheme(
                 appTheme = theme,
+                appThemeStyle = themeStyle,
                 dynamicColor = dynamicColor
             ) {
                 // Track whether to show splash
@@ -73,17 +77,18 @@ class MainActivity : ComponentActivity() {
 
 @androidx.compose.runtime.Composable
 private fun SplashContentScreen(onSplashFinished: () -> Unit) {
+    val contentColor = MaterialTheme.colorScheme.onPrimary
     // Automatically transition after 1 second for smooth transition from system splash
     LaunchedEffect(Unit) {
         delay(1000)
         onSplashFinished()
     }
 
-    // Gradient background: azure blue palette
+    // Gradient background: dynamic colors based on theme
     val gradientBrush = Brush.linearGradient(
         colors = listOf(
-            Color(0xFF0061A4), // PrimaryLight
-            Color(0xFF00497D)  // PrimaryContainerDark / brand_secondary
+            MaterialTheme.colorScheme.primary,
+            MaterialTheme.colorScheme.primaryContainer
         ),
         start = androidx.compose.ui.geometry.Offset(0f, 0f),
         end = androidx.compose.ui.geometry.Offset(0f, Float.POSITIVE_INFINITY)
@@ -126,7 +131,7 @@ private fun SplashContentScreen(onSplashFinished: () -> Unit) {
                 text = "CloudVault",
                 fontSize = 32.sp,
                 fontWeight = FontWeight.Bold,
-                color = Color.White,
+                color = contentColor,
                 textAlign = TextAlign.Center
             )
 
@@ -137,7 +142,7 @@ private fun SplashContentScreen(onSplashFinished: () -> Unit) {
                 text = "Secure Cloud Storage",
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Medium,
-                color = Color.White.copy(alpha = 0.8f),
+                color = contentColor.copy(alpha = 0.8f),
                 textAlign = TextAlign.Center
             )
         }

@@ -13,8 +13,10 @@ import androidx.work.workDataOf
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
-import java.io.FileOutputStream
 import java.io.IOException
+import java.io.RandomAccessFile
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 class DownloadWorker(
     context: Context,
@@ -24,32 +26,64 @@ class DownloadWorker(
     private val notificationManager =
         context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
-    override suspend fun doWork(): Result {
-        val downloadUrl = inputData.getString(KEY_DOWNLOAD_URL) ?: return Result.failure()
+    override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
+        val downloadUrl = inputData.getString(KEY_DOWNLOAD_URL) ?: return@withContext Result.failure()
         val fileName = inputData.getString(KEY_FILE_NAME) ?: "update.apk"
 
         createNotificationChannel()
         setForeground(createForegroundInfo(0))
 
+        val outputFile = File(applicationContext.getExternalFilesDir(null), fileName)
+        var downloadedBytes = 0L
+        if (outputFile.exists()) {
+            downloadedBytes = outputFile.length()
+        }
+
         val client = OkHttpClient()
-        val request = Request.Builder().url(downloadUrl).build()
+        val requestBuilder = Request.Builder()
+            .url(downloadUrl)
+        
+        if (downloadedBytes > 0) {
+            requestBuilder.header("Range", "bytes=$downloadedBytes-")
+        }
+        
+        val request = requestBuilder.build()
 
-        return try {
+        try {
             val response = client.newCall(request).execute()
-            if (!response.isSuccessful) return Result.failure()
+            if (!response.isSuccessful && response.code != 206) {
+                if (response.code == 416) { // Range Not Satisfiable (maybe file already fully downloaded)
+                     return@withContext Result.success(workDataOf(KEY_FILE_PATH to outputFile.absolutePath))
+                }
+                return@withContext Result.failure()
+            }
 
-            val body = response.body ?: return Result.failure()
-            val totalBytes = body.contentLength()
-            val outputFile = File(applicationContext.getExternalFilesDir(null), fileName)
+            val body = response.body ?: return@withContext Result.failure()
+            val contentLength = body.contentLength()
+            val totalBytes = if (response.code == 206) {
+                downloadedBytes + contentLength
+            } else {
+                contentLength
+            }
 
-            body.byteStream().use { input ->
-                FileOutputStream(outputFile).use { output ->
+            if (downloadedBytes >= totalBytes && totalBytes > 0) {
+                 return@withContext Result.success(workDataOf(KEY_FILE_PATH to outputFile.absolutePath))
+            }
+
+            RandomAccessFile(outputFile, "rw").use { raf ->
+                if (response.code == 206) {
+                    raf.seek(downloadedBytes)
+                } else {
+                    raf.setLength(0)
+                }
+                
+                body.byteStream().use { input ->
                     val buffer = ByteArray(8 * 1024)
                     var bytesReadSize: Int
-                    var totalRead = 0L
+                    var totalRead = downloadedBytes
 
                     while (input.read(buffer).also { bytesReadSize = it } != -1) {
-                        output.write(buffer, 0, bytesReadSize)
+                        raf.write(buffer, 0, bytesReadSize)
                         totalRead += bytesReadSize
                         if (totalBytes > 0) {
                             val progress = (totalRead * 100 / totalBytes).toInt()
@@ -62,7 +96,7 @@ class DownloadWorker(
 
             Result.success(workDataOf(KEY_FILE_PATH to outputFile.absolutePath))
         } catch (e: IOException) {
-            Result.failure()
+            Result.retry()
         }
     }
 

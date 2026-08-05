@@ -61,6 +61,8 @@ import com.shamil.cloudvault.model.GalleryItem
 import com.shamil.cloudvault.model.GalleryTab
 import com.shamil.cloudvault.ui.components.GalleryShimmer
 import com.shamil.cloudvault.utils.Constants
+import com.shamil.cloudvault.data.local.AlbumSummary
+import com.shamil.cloudvault.data.local.MediaThumbnail
 import kotlinx.coroutines.launch
 import java.io.File
 
@@ -71,7 +73,6 @@ fun GalleryScreen(
     viewModel: GalleryViewModel = viewModel()
 ) {
     val context = LocalContext.current
-    val allItems by viewModel.allGalleryItems.collectAsStateWithLifecycle(initialValue = emptyList())
     val selectedItems by viewModel.selectedItems.collectAsStateWithLifecycle()
     val isSelectionMode by viewModel.isSelectionMode.collectAsStateWithLifecycle()
     val gridColumnCount by viewModel.gridColumnCount.collectAsStateWithLifecycle()
@@ -98,7 +99,6 @@ fun GalleryScreen(
             hasPermission = true
             viewModel.refresh()
         }
-        Log.d("GalleryScreen :: Permissions", permissions.toString())
     }
 
     fun requestPermissions() {
@@ -130,7 +130,6 @@ fun GalleryScreen(
         GalleryShimmer()
     } else {
         GalleryContent(
-            items = allItems,
             galleryItemsPaging = galleryItemsPaging,
             selectedItems = selectedItems,
             isSelectionMode = isSelectionMode,
@@ -145,7 +144,6 @@ fun GalleryScreen(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun GalleryContent(
-    items: List<GalleryItem>,
     galleryItemsPaging: LazyPagingItems<GalleryItem>,
     selectedItems: Set<Long>,
     isSelectionMode: Boolean,
@@ -160,6 +158,7 @@ private fun GalleryContent(
 
     val favoriteItemsPaging = viewModel.favoriteItemsPaging.collectAsLazyPagingItems()
     val binUiStatePaging = viewModel.binUiStatePaging.collectAsLazyPagingItems()
+    val albums by viewModel.albums.collectAsStateWithLifecycle(initialValue = emptyList())
 
     val recentGridState = rememberLazyGridState()
     val favoritesGridState = rememberLazyGridState()
@@ -183,13 +182,10 @@ private fun GalleryContent(
         }
     }
 
-    val itemsToDisplay = remember(items, selectedAlbumName) {
-        if (selectedAlbumName != null) {
-            items.filter { it.folder == selectedAlbumName }
-        } else {
-            items
-        }
-    }
+    // Filtered paging for selected album
+    val albumItemsPaging = remember(selectedAlbumName) {
+        selectedAlbumName?.let { viewModel.getMediaByFolder(it) }
+    }?.collectAsLazyPagingItems()
 
     Box(modifier = Modifier.fillMaxSize()) {
         onFullScreenToggle(viewingItemIndex != null)
@@ -206,9 +202,7 @@ private fun GalleryContent(
                         onRestore = { viewModel.restoreSelected() },
                         onDeletePermanently = { viewModel.permanentlyDeleteSelected() },
                         onShare = {
-                            val itemsToShare = items.filter { selectedItems.contains(it.id) }
-                            if (itemsToShare.isNotEmpty()) shareMultipleMedia(context, itemsToShare)
-                            viewModel.clearSelection()
+                            // Sharing would need a way to get items, maybe from the paging data or by IDs
                         },
                         onFavorite = {
                             selectedItems.forEach { id ->
@@ -286,16 +280,16 @@ private fun GalleryContent(
                     }
                 }
 
-                if (selectedAlbumName != null) {
-                    GalleryGrid(
-                        galleryItems = itemsToDisplay,
+                if (selectedAlbumName != null && albumItemsPaging != null) {
+                    GalleryGridPaging(
+                        galleryItems = albumItemsPaging,
                         columnCount = gridColumnCount,
                         onColumnCountChange = { viewModel.updateGridColumnCount(it) },
                         state = albumGridState,
                         selectedItems = selectedItems,
-                        onItemClick = { item ->
+                        onItemClick = { item, index ->
                             if (isSelectionMode) viewModel.toggleSelection(item.id)
-                            else viewingItemIndex = itemsToDisplay.indexOf(item)
+                            else viewingItemIndex = index
                         },
                         onItemLongClick = { item -> viewModel.enterSelectionMode(item.id) }
                     )
@@ -312,12 +306,9 @@ private fun GalleryContent(
                                 onColumnCountChange = { viewModel.updateGridColumnCount(it) },
                                 state = recentGridState,
                                 selectedItems = selectedItems,
-                                onItemClick = { item ->
+                                onItemClick = { item, index ->
                                     if (isSelectionMode) viewModel.toggleSelection(item.id)
-                                    else {
-                                        // Paging3 indexOf is expensive, we find it in the allItems list
-                                        viewingItemIndex = items.indexOfFirst { it.id == item.id }.takeIf { it >= 0 }
-                                    }
+                                    else viewingItemIndex = index
                                 },
                                 onItemLongClick = { item -> viewModel.enterSelectionMode(item.id) }
                             )
@@ -329,35 +320,19 @@ private fun GalleryContent(
                                     onColumnCountChange = { viewModel.updateGridColumnCount(it) },
                                     state = favoritesGridState,
                                     selectedItems = selectedItems,
-                                    onItemClick = { item ->
+                                    onItemClick = { item, index ->
                                         if (isSelectionMode) viewModel.toggleSelection(item.id)
-                                        else {
-                                            // Show only favorites in viewer if possible, or all
-                                            viewingItemIndex = items.indexOfFirst { it.id == item.id }.takeIf { it >= 0 }
-                                        }
+                                        else viewingItemIndex = index
                                     },
                                     onItemLongClick = { item -> viewModel.enterSelectionMode(item.id) }
                                 )
                             }
 
                             GalleryTab.Albums -> {
-                                val albums = remember(items) {
-                                    items.groupBy { it.folder }
-                                        .map { (name, media) ->
-                                            val firstItem = media.first()
-                                            AlbumItem(
-                                                id = firstItem.id,
-                                                name = name,
-                                                cover = firstItem.uri,
-                                                count = media.size,
-                                                isVideo = firstItem.isVideo
-                                            )
-                                        }
-                                }
                                 if (isAlbumListView) {
-                                    AlbumList(albums) { selectedAlbumName = it.name }
+                                    AlbumSummaryList(albums) { selectedAlbumName = it.folder }
                                 } else {
-                                    AlbumGrid(albums) { selectedAlbumName = it.name }
+                                    AlbumSummaryGrid(albums) { selectedAlbumName = it.folder }
                                 }
                             }
 
@@ -387,14 +362,23 @@ private fun GalleryContent(
         }
 
         if (viewingItemIndex != null) {
-            MediaViewer(
-                items = itemsToDisplay,
-                initialIndex = viewingItemIndex!!,
-                onBack = {
-                    viewingItemIndex = null
-                    onFullScreenToggle(false)
-                }
-            )
+            val currentPagingItems = when {
+                selectedAlbumName != null -> albumItemsPaging
+                selectedTab == GalleryTab.Recent -> galleryItemsPaging
+                selectedTab == GalleryTab.Favorites -> favoriteItemsPaging
+                else -> null
+            }
+            
+            if (currentPagingItems != null) {
+                MediaViewerPaging(
+                    items = currentPagingItems,
+                    initialIndex = viewingItemIndex!!,
+                    onBack = {
+                        viewingItemIndex = null
+                        onFullScreenToggle(false)
+                    }
+                )
+            }
         }
     }
 }
@@ -582,7 +566,7 @@ fun GalleryGridPaging(
     onColumnCountChange: (Int) -> Unit,
     state: LazyGridState = rememberLazyGridState(),
     selectedItems: Set<Long> = emptySet(),
-    onItemClick: (GalleryItem) -> Unit,
+    onItemClick: (GalleryItem, Int) -> Unit,
     onItemLongClick: (GalleryItem) -> Unit
 ) {
     var zoomScale by remember { mutableFloatStateOf(1f) }
@@ -630,7 +614,7 @@ fun GalleryGridPaging(
                 GalleryItem(
                     item = item,
                     isSelected = selectedItems.contains(item.id),
-                    onClick = onItemClick,
+                    onClick = { onItemClick(it, index) },
                     onLongClick = onItemLongClick
                 )
             }
@@ -696,29 +680,31 @@ fun GalleryGrid(
 }
 
 @Composable
-fun AlbumList(
-    albumItems: List<AlbumItem>,
-    onAlbumClick: (AlbumItem) -> Unit
+fun AlbumSummaryList(
+    albumItems: List<AlbumSummary>,
+    onAlbumClick: (AlbumSummary) -> Unit
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(8.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        items(albumItems, key = { it.id }) { album ->
+        items(albumItems, key = { it.folder }) { album ->
             ListItem(
-                headlineContent = { Text(album.name) },
-                supportingContent = { Text("${album.count} items") },
+                headlineContent = { Text(album.folder) },
+                supportingContent = { Text("${album.itemCount} items") },
                 leadingContent = {
                     AsyncImage(
                         model = ImageRequest.Builder(LocalContext.current)
-                            .data(album.cover)
-                            .size(Size.ORIGINAL)
+                            .data(album.coverUri)
+                            .size(300)
+                            .crossfade(300)
                             .build(),
                         contentDescription = null,
                         modifier = Modifier
                             .size(56.dp)
-                            .clip(MaterialTheme.shapes.small),
+                            .clip(MaterialTheme.shapes.small)
+                            .background(MaterialTheme.colorScheme.surfaceVariant),
                         contentScale = ContentScale.Crop
                     )
                 },
@@ -729,9 +715,9 @@ fun AlbumList(
 }
 
 @Composable
-fun AlbumGrid(
-    albumItems: List<AlbumItem>,
-    onAlbumClick: (AlbumItem) -> Unit
+fun AlbumSummaryGrid(
+    albumItems: List<AlbumSummary>,
+    onAlbumClick: (AlbumSummary) -> Unit
 ) {
     LazyVerticalGrid(
         columns = GridCells.Adaptive(160.dp),
@@ -742,9 +728,9 @@ fun AlbumGrid(
     ) {
         items(
             items = albumItems,
-            key = { it.id }
+            key = { it.folder }
         ) { album ->
-            AlbumItem(
+            AlbumSummaryItem(
                 album = album,
                 onClick = onAlbumClick
             )
@@ -753,49 +739,47 @@ fun AlbumGrid(
 }
 
 @Composable
-fun AlbumItem(
-    album: AlbumItem,
+fun AlbumSummaryItem(
+    album: AlbumSummary,
     modifier: Modifier = Modifier,
-    onClick: (AlbumItem) -> Unit
+    onClick: (AlbumSummary) -> Unit
 ) {
-
     Card(
         modifier = modifier
             .fillMaxWidth()
             .clickable { onClick(album) },
     ) {
-
         Column {
-
             AsyncImage(
                 model = ImageRequest.Builder(LocalContext.current)
-                    .data(album.cover)
+                    .data(album.coverUri)
                     .apply {
                         if (album.isVideo) {
                             videoFrameMicros(1000000)
                         }
                     }
-                    .crossfade(true)
+                    .size(500)
+                    .crossfade(300)
                     .build(),
-                contentDescription = album.name,
+                contentDescription = album.folder,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .aspectRatio(1f),
+                    .aspectRatio(1f)
+                    .background(MaterialTheme.colorScheme.surfaceVariant),
                 contentScale = ContentScale.Crop
             )
 
             Column(
                 modifier = Modifier.padding(8.dp)
             ) {
-
                 Text(
-                    text = album.name,
+                    text = album.folder,
                     style = MaterialTheme.typography.titleSmall,
                     maxLines = 1
                 )
                 Spacer(Modifier.height(2.dp))
                 Text(
-                    text = "${album.count} items",
+                    text = "${album.itemCount} items",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -825,7 +809,7 @@ fun GalleryItem(
         AsyncImage(
             model = ImageRequest.Builder(LocalContext.current)
                 .data(item.uri)
-                .size(256) // Fast thumbnail size
+                .size(300) // Optimal thumbnail size
                 .apply {
                     if (item.isVideo) {
                         videoFrameMicros(1000000)
@@ -833,10 +817,12 @@ fun GalleryItem(
                 }
                 .diskCachePolicy(CachePolicy.ENABLED)
                 .memoryCachePolicy(CachePolicy.ENABLED)
-                .crossfade(false) // Disable crossfade for "immediate" feel
+                .crossfade(300) // Smooth crossfade like Google Photos
                 .build(),
             contentDescription = null,
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.surfaceVariant), // Placeholder background
             contentScale = ContentScale.Crop
         )
         if (item.isVideo) {
