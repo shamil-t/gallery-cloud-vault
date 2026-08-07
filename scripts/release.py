@@ -52,6 +52,10 @@ def run_command(command, description):
         sys.exit(1)
     return result.stdout
 
+def is_tool_available(name):
+    from shutil import which
+    return which(name) is not None
+
 def main():
     parser = argparse.ArgumentParser(description="Cloud Vault Release Flow")
     parser.add_argument("version", help="New version name (e.g., 1.2.2)")
@@ -69,13 +73,13 @@ def main():
 
     # 2. Build Signed APK
     # Note: Requires RELEASE_STORE_FILE, etc. to be set in local.properties or Env
-    run_command("./gradlew assembleRelease", "Building signed APK")
+    gradle_cmd = "gradlew" if os.name == 'nt' else "./gradlew"
+    run_command(f"{gradle_cmd} assembleRelease", "Building signed APK")
 
     apk_path = "app/build/outputs/apk/release/app-release.apk"
     if not os.path.exists(apk_path):
-        # Check if it was renamed by gradle (sometimes happens)
-        print("Warning: Standard APK path not found, checking alternatives...")
-        # Add logic if needed, but standard is usually fine
+        print(f"Error: APK not found at {apk_path}")
+        sys.exit(1)
 
     # 3. Git Operations
     run_command(f"git add {GRADLE_FILE} {UPDATE_JSON}", "Staging changes")
@@ -83,11 +87,20 @@ def main():
     run_command(f"git tag -a v{new_version_name} -m \"Version {new_version_name}\"", "Tagging release")
     run_command("git push origin main --tags", "Pushing to GitHub")
 
-    # 4. GitHub Release (using gh CLI)
-    gh_command = f'gh release create v{new_version_name} "{apk_path}" --title "Release v{new_version_name}" --notes "See comparison for changes: {old_version_name}...{new_version_name}"'
-    run_command(gh_command, "Creating GitHub release and uploading APK")
-
-    print(f"Successfully released v{new_version_name}!")
+    # 4. GitHub Release
+    if is_tool_available("gh"):
+        gh_command = f'gh release create v{new_version_name} "{apk_path}" --title "Release v{new_version_name}" --notes "See comparison for changes: {old_version_name}...{new_version_name}"'
+        run_command(gh_command, "Creating GitHub release and uploading APK")
+        print(f"Successfully released v{new_version_name} via GitHub CLI!")
+    else:
+        print("\n" + "="*50)
+        print("GITHUB CLI (gh) NOT FOUND")
+        print("Git push was successful. Please create the release manually:")
+        print(f"1. Go to: https://github.com/{REPO_OWNER}/{REPO_NAME}/releases/new")
+        print(f"2. Select Tag: v{new_version_name}")
+        print(f"3. Release Title: Release v{new_version_name}")
+        print(f"4. Upload the APK from: {os.path.abspath(apk_path)}")
+        print("="*50 + "\n")
 
 if __name__ == "__main__":
     main()

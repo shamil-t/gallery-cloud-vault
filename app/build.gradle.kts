@@ -1,3 +1,6 @@
+import java.util.Properties
+import java.io.FileInputStream
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
@@ -11,22 +14,33 @@ android {
         version = release(37)
     }
 
+    val localProperties = Properties()
+    val localPropertiesFile = rootProject.file("local.properties")
+    if (localPropertiesFile.exists()) {
+        localProperties.load(FileInputStream(localPropertiesFile))
+    }
+
     defaultConfig {
         applicationId = "com.shamil.cloudvault"
         minSdk = 29
         targetSdk = 37
-        versionCode = 1
-        versionName = "1.2.1"
+        versionCode = 2
+        versionName = "1.2.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     signingConfigs {
         create("release") {
-            storeFile = file(project.findProperty("RELEASE_STORE_FILE") ?: "keystore.jks")
-            storePassword = project.findProperty("RELEASE_STORE_PASSWORD")?.toString()
-            keyAlias = project.findProperty("RELEASE_KEY_ALIAS")?.toString()
-            keyPassword = project.findProperty("RELEASE_KEY_PASSWORD")?.toString()
+            val storeFileProp = localProperties.getProperty("RELEASE_STORE_FILE") ?: project.findProperty("RELEASE_STORE_FILE")?.toString()
+            if (storeFileProp != null) {
+                storeFile = rootProject.file(storeFileProp)
+            } else {
+                storeFile = file("keystore.jks")
+            }
+            storePassword = localProperties.getProperty("RELEASE_STORE_PASSWORD") ?: project.findProperty("RELEASE_STORE_PASSWORD")?.toString()
+            keyAlias = localProperties.getProperty("RELEASE_KEY_ALIAS") ?: project.findProperty("RELEASE_KEY_ALIAS")?.toString()
+            keyPassword = localProperties.getProperty("RELEASE_KEY_PASSWORD") ?: project.findProperty("RELEASE_KEY_PASSWORD")?.toString()
         }
     }
 
