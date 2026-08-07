@@ -96,7 +96,9 @@ fun GalleryScreen(
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
 
     val galleryItemsPaging = viewModel.galleryItemsPaging.collectAsLazyPagingItems()
+    val galleryItemsOnlyPaging = viewModel.galleryItemsOnlyPaging.collectAsLazyPagingItems()
     val searchResultsPaging = viewModel.searchResults.collectAsLazyPagingItems()
+    val searchResultsOnlyPaging = viewModel.searchResultsOnly.collectAsLazyPagingItems()
 
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
@@ -147,7 +149,9 @@ fun GalleryScreen(
     Box(modifier = Modifier.fillMaxSize()) {
         GalleryContent(
             galleryItemsPaging = galleryItemsPaging,
+            galleryItemsOnlyPaging = galleryItemsOnlyPaging,
             searchResultsPaging = searchResultsPaging,
+            searchResultsOnlyPaging = searchResultsOnlyPaging,
             selectedItems = selectedItems,
             isSelectionMode = isSelectionMode,
             isSearchActive = isSearchActive,
@@ -169,7 +173,9 @@ fun GalleryScreen(
 @Composable
 private fun GalleryContent(
     galleryItemsPaging: LazyPagingItems<GalleryUiModel>,
+    galleryItemsOnlyPaging: LazyPagingItems<GalleryItem>,
     searchResultsPaging: LazyPagingItems<GalleryUiModel>,
+    searchResultsOnlyPaging: LazyPagingItems<GalleryItem>,
     selectedItems: Set<Long>,
     isSelectionMode: Boolean,
     isSearchActive: Boolean,
@@ -184,6 +190,7 @@ private fun GalleryContent(
     val coroutineScope = rememberCoroutineScope()
 
     val favoriteItemsPaging = viewModel.favoriteItemsPaging.collectAsLazyPagingItems()
+    val favoriteItemsOnlyPaging = viewModel.favoriteItemsOnlyPaging.collectAsLazyPagingItems()
     val binUiStatePaging = viewModel.binUiStatePaging.collectAsLazyPagingItems()
     val albums by viewModel.albums.collectAsStateWithLifecycle(initialValue = emptyList())
 
@@ -224,6 +231,10 @@ private fun GalleryContent(
     // Filtered paging for selected album
     val albumItemsPaging = remember(selectedAlbumName) {
         selectedAlbumName?.let { viewModel.getMediaByFolder(it) }
+    }?.collectAsLazyPagingItems()
+
+    val albumItemsOnlyPaging = remember(selectedAlbumName) {
+        selectedAlbumName?.let { viewModel.getMediaByFolderOnly(it) }
     }?.collectAsLazyPagingItems()
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -301,9 +312,16 @@ private fun GalleryContent(
                             onColumnCountChange = { viewModel.updateGridColumnCount(it) },
                             state = searchGridState,
                             selectedItems = selectedItems,
-                            onItemClick = { item, index ->
+                            onItemClick = { item, combinedIndex ->
                                 if (isSelectionMode) viewModel.toggleSelection(item.id)
-                                else viewingSearchItemIndex = index
+                                else {
+                                    // Calculate media-only index
+                                    var mediaIndex = 0
+                                    for (i in 0 until combinedIndex) {
+                                        if (searchResultsPaging[i] is GalleryUiModel.Item) mediaIndex++
+                                    }
+                                    viewingSearchItemIndex = mediaIndex
+                                }
                             },
                             onItemLongClick = { item -> viewModel.enterSelectionMode(item.id) }
                         )
@@ -358,9 +376,15 @@ private fun GalleryContent(
                             onColumnCountChange = { viewModel.updateGridColumnCount(it) },
                             state = albumGridState,
                             selectedItems = selectedItems,
-                            onItemClick = { item, index ->
+                            onItemClick = { item, combinedIndex ->
                                 if (isSelectionMode) viewModel.toggleSelection(item.id)
-                                else viewingItemIndex = index
+                                else {
+                                    var mediaIndex = 0
+                                    for (i in 0 until combinedIndex) {
+                                        if (albumItemsPaging[i] is GalleryUiModel.Item) mediaIndex++
+                                    }
+                                    viewingItemIndex = mediaIndex
+                                }
                             },
                             onItemLongClick = { item -> viewModel.enterSelectionMode(item.id) }
                         )
@@ -381,9 +405,15 @@ private fun GalleryContent(
                                             onColumnCountChange = { viewModel.updateGridColumnCount(it) },
                                             state = recentGridState,
                                             selectedItems = selectedItems,
-                                            onItemClick = { item, index ->
+                                            onItemClick = { item, combinedIndex ->
                                                 if (isSelectionMode) viewModel.toggleSelection(item.id)
-                                                else viewingItemIndex = index
+                                                else {
+                                                    var mediaIndex = 0
+                                                    for (i in 0 until combinedIndex) {
+                                                        if (galleryItemsPaging[i] is GalleryUiModel.Item) mediaIndex++
+                                                    }
+                                                    viewingItemIndex = mediaIndex
+                                                }
                                             },
                                             onItemLongClick = { item -> viewModel.enterSelectionMode(item.id) }
                                         )
@@ -400,9 +430,15 @@ private fun GalleryContent(
                                             onColumnCountChange = { viewModel.updateGridColumnCount(it) },
                                             state = favoritesGridState,
                                             selectedItems = selectedItems,
-                                            onItemClick = { item, index ->
+                                            onItemClick = { item, combinedIndex ->
                                                 if (isSelectionMode) viewModel.toggleSelection(item.id)
-                                                else viewingItemIndex = index
+                                                else {
+                                                    var mediaIndex = 0
+                                                    for (i in 0 until combinedIndex) {
+                                                        if (favoriteItemsPaging[i] is GalleryUiModel.Item) mediaIndex++
+                                                    }
+                                                    viewingItemIndex = mediaIndex
+                                                }
                                             },
                                             onItemLongClick = { item -> viewModel.enterSelectionMode(item.id) }
                                         )
@@ -447,10 +483,10 @@ private fun GalleryContent(
 
         if (viewingItemIndex != null || viewingSearchItemIndex != null) {
             val currentPagingItems = when {
-                viewingSearchItemIndex != null -> searchResultsPaging
-                selectedAlbumName != null -> albumItemsPaging
-                selectedTab == GalleryTab.Recent -> galleryItemsPaging
-                selectedTab == GalleryTab.Favorites -> favoriteItemsPaging
+                viewingSearchItemIndex != null -> searchResultsOnlyPaging
+                selectedAlbumName != null -> albumItemsOnlyPaging
+                selectedTab == GalleryTab.Recent -> galleryItemsOnlyPaging
+                selectedTab == GalleryTab.Favorites -> favoriteItemsOnlyPaging
                 else -> null
             }
             

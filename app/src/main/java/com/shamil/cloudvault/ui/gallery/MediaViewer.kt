@@ -69,7 +69,7 @@ import java.util.Locale
 
 @Composable
 fun MediaViewerPaging(
-    items: LazyPagingItems<GalleryUiModel>,
+    items: LazyPagingItems<GalleryItem>,
     initialIndex: Int,
     viewModel: GalleryViewModel,
     onBack: () -> Unit,
@@ -82,13 +82,11 @@ fun MediaViewerPaging(
     val coroutineScope = rememberCoroutineScope()
 
     // Access current item from Paging for the Pager structure
-    val pagingModel = if (pagerState.currentPage < items.itemCount && pagerState.currentPage >= 0) {
+    val pagingItem = if (pagerState.currentPage < items.itemCount && pagerState.currentPage >= 0) {
         items[pagerState.currentPage]
     } else {
         null
     }
-    
-    val pagingItem = (pagingModel as? GalleryUiModel.Item)?.item
 
     // Observe the FULL metadata reactive Flow for the current item
     val fullItem by remember(pagingItem?.id) {
@@ -119,34 +117,22 @@ fun MediaViewerPaging(
             pageSpacing = 16.dp,
             userScrollEnabled = !isZoomed
         ) { page ->
-            when (val model = items[page]) {
-                is GalleryUiModel.Item -> {
-                    val item = model.item
-                    if (item.isVideo) {
-                        VideoMediaItem(
-                            item = item,
-                            isActive = pagerState.currentPage == page
-                        )
-                    } else {
-                        ZoomableImage(
-                            item = item,
-                            onZoomChange = { isZoomed = it }
-                        )
-                    }
+            val item = items[page]
+            if (item != null) {
+                if (item.isVideo) {
+                    VideoMediaItem(
+                        item = item,
+                        isActive = pagerState.currentPage == page
+                    )
+                } else {
+                    ZoomableImage(
+                        item = item,
+                        onZoomChange = { isZoomed = it }
+                    )
                 }
-                is GalleryUiModel.Header -> {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text(
-                            text = model.date,
-                            style = MaterialTheme.typography.headlineMedium,
-                            color = Color.White.copy(alpha = 0.7f)
-                        )
-                    }
-                }
-                null -> {
-                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        CircularProgressIndicator(color = Color.White)
-                    }
+            } else {
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = Color.White)
                 }
             }
         }

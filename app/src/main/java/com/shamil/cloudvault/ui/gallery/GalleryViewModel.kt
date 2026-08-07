@@ -95,8 +95,14 @@ class GalleryViewModel(
         .map { insertDateHeaders(it) }
         .cachedIn(viewModelScope)
 
+    val galleryItemsOnlyPaging: Flow<PagingData<GalleryItem>> = getGalleryItemsUseCase()
+        .cachedIn(viewModelScope)
+
     val favoriteItemsPaging: Flow<PagingData<GalleryUiModel>> = repository.getFavoriteItems()
         .map { insertDateHeaders(it) }
+        .cachedIn(viewModelScope)
+
+    val favoriteItemsOnlyPaging: Flow<PagingData<GalleryItem>> = repository.getFavoriteItems()
         .cachedIn(viewModelScope)
 
     val albums: Flow<List<AlbumSummary>> = repository.getAlbums()
@@ -139,6 +145,14 @@ class GalleryViewModel(
         }
         .cachedIn(viewModelScope)
 
+    val searchResultsOnly: Flow<PagingData<GalleryItem>> = _searchQuery
+        .debounce(300)
+        .flatMapLatest { query ->
+            if (query.isEmpty()) emptyFlow()
+            else repository.searchMedia(query)
+        }
+        .cachedIn(viewModelScope)
+
     fun setSearchActive(active: Boolean) {
         _isSearchActive.value = active
         if (!active) _searchQuery.value = ""
@@ -151,6 +165,10 @@ class GalleryViewModel(
     fun getMediaByFolder(folder: String): Flow<PagingData<GalleryUiModel>> = 
         repository.getMediaByFolder(folder)
             .map { insertDateHeaders(it) }
+            .cachedIn(viewModelScope)
+
+    fun getMediaByFolderOnly(folder: String): Flow<PagingData<GalleryItem>> = 
+        repository.getMediaByFolder(folder)
             .cachedIn(viewModelScope)
 
     private fun insertDateHeaders(pagingData: PagingData<GalleryItem>): PagingData<GalleryUiModel> {
