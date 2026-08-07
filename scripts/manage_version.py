@@ -48,8 +48,12 @@ def main():
     new_version_name = args.version
     try:
         old_version_name, old_version_code = get_current_gradle_version()
-        new_version_code = old_version_code + 1
 
+        if new_version_name == old_version_name:
+            print(f"Version {new_version_name} is already set. No changes made.")
+            return
+
+        new_version_code = old_version_code + 1
         update_gradle_version(new_version_name, new_version_code)
         update_update_json(new_version_name, old_version_name)
     except Exception as e:

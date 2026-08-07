@@ -49,7 +49,7 @@ def run_command(command, description):
         print(f"Error during {description}:")
         print(result.stdout)
         print(result.stderr)
-        sys.exit(1)
+        raise Exception(f"Command failed: {description}")
     return result.stdout
 
 def is_tool_available(name):
@@ -62,45 +62,72 @@ def main():
     args = parser.parse_args()
 
     new_version_name = args.version
+
+    # Store original contents for revert
+    with open(GRADLE_FILE, 'r') as f:
+        original_gradle = f.read()
+    with open(UPDATE_JSON, 'r') as f:
+        original_update = f.read()
+
     old_version_name, old_version_code = get_current_gradle_version()
-    new_version_code = old_version_code + 1
 
-    print(f"Starting release flow for v{new_version_name}...")
+    version_changed = new_version_name != old_version_name
+    new_version_code = old_version_code + 1 if version_changed else old_version_code
 
-    # 1. Update files
-    update_gradle_version(new_version_name, new_version_code)
-    update_update_json(new_version_name, old_version_name)
+    try:
+        if version_changed:
+            print(f"Starting release flow for v{new_version_name} (updating from v{old_version_name})...")
+            # 1. Update files
+            update_gradle_version(new_version_name, new_version_code)
+            # Find previous version for release notes comparison
+            # If version is changed, old_version_name is the previous one.
+            update_update_json(new_version_name, old_version_name)
+        else:
+            print(f"Version {new_version_name} is already set. Skipping file updates.")
 
-    # 2. Build Signed APK
-    # Note: Requires RELEASE_STORE_FILE, etc. to be set in local.properties or Env
-    gradle_cmd = "gradlew" if os.name == 'nt' else "./gradlew"
-    run_command(f"{gradle_cmd} assembleRelease", "Building signed APK")
+        # 2. Build Signed APK
+        gradle_cmd = "gradlew" if os.name == 'nt' else "./gradlew"
+        run_command(f"{gradle_cmd} assembleRelease", "Building signed APK")
 
-    apk_path = "app/build/outputs/apk/release/app-release.apk"
-    if not os.path.exists(apk_path):
-        print(f"Error: APK not found at {apk_path}")
+        apk_path = "app/build/outputs/apk/release/app-release.apk"
+        if not os.path.exists(apk_path):
+            raise Exception(f"APK not found at {apk_path}")
+
+        # 3. Git Operations
+        if version_changed:
+            run_command(f"git add {GRADLE_FILE} {UPDATE_JSON}", "Staging changes")
+            run_command(f'git commit -m "Release v{new_version_name}"', "Committing release")
+
+        run_command(f"git tag -f v{new_version_name} -m \"Version {new_version_name}\"", "Tagging release")
+        run_command("git push origin main --tags", "Pushing to GitHub")
+
+        # 4. GitHub Release
+        if is_tool_available("gh"):
+            # If version didn't change, we might need to delete the old release first or just let gh handle it
+            # But usually we overwrite or create new. Using --overwrite if available or just create.
+            gh_command = f'gh release create v{new_version_name} "{apk_path}" --title "Release v{new_version_name}" --notes "Release v{new_version_name}" --clobber'
+            run_command(gh_command, "Creating/Updating GitHub release and uploading APK")
+            print(f"Successfully released v{new_version_name} via GitHub CLI!")
+        else:
+            print("\n" + "="*50)
+            print("GITHUB CLI (gh) NOT FOUND")
+            print("Git push was successful. Please create the release manually:")
+            print(f"1. Go to: https://github.com/{REPO_OWNER}/{REPO_NAME}/releases/new")
+            print(f"2. Select Tag: v{new_version_name}")
+            print(f"3. Release Title: Release v{new_version_name}")
+            print(f"4. Upload the APK from: {os.path.abspath(apk_path)}")
+            print("="*50 + "\n")
+
+    except Exception as e:
+        print(f"\nCRITICAL: Release failed: {e}")
+        if version_changed:
+            print("Reverting version changes in local files...")
+            with open(GRADLE_FILE, 'w') as f:
+                f.write(original_gradle)
+            with open(UPDATE_JSON, 'w') as f:
+                f.write(original_update)
+            print("Files restored to original state.")
         sys.exit(1)
-
-    # 3. Git Operations
-    run_command(f"git add {GRADLE_FILE} {UPDATE_JSON}", "Staging changes")
-    run_command(f'git commit -m "Release v{new_version_name}"', "Committing release")
-    run_command(f"git tag -a v{new_version_name} -m \"Version {new_version_name}\"", "Tagging release")
-    run_command("git push origin main --tags", "Pushing to GitHub")
-
-    # 4. GitHub Release
-    if is_tool_available("gh"):
-        gh_command = f'gh release create v{new_version_name} "{apk_path}" --title "Release v{new_version_name}" --notes "See comparison for changes: {old_version_name}...{new_version_name}"'
-        run_command(gh_command, "Creating GitHub release and uploading APK")
-        print(f"Successfully released v{new_version_name} via GitHub CLI!")
-    else:
-        print("\n" + "="*50)
-        print("GITHUB CLI (gh) NOT FOUND")
-        print("Git push was successful. Please create the release manually:")
-        print(f"1. Go to: https://github.com/{REPO_OWNER}/{REPO_NAME}/releases/new")
-        print(f"2. Select Tag: v{new_version_name}")
-        print(f"3. Release Title: Release v{new_version_name}")
-        print(f"4. Upload the APK from: {os.path.abspath(apk_path)}")
-        print("="*50 + "\n")
 
 if __name__ == "__main__":
     main()
