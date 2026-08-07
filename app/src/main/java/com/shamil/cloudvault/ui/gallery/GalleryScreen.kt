@@ -28,6 +28,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.List
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -35,11 +36,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
+import com.shamil.cloudvault.R
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
@@ -63,21 +67,36 @@ import com.shamil.cloudvault.ui.components.GalleryShimmer
 import com.shamil.cloudvault.utils.Constants
 import com.shamil.cloudvault.data.local.AlbumSummary
 import com.shamil.cloudvault.data.local.MediaThumbnail
+import com.shamil.cloudvault.utils.BitmapUtils
+import com.shamil.image_editor_sdk.core.session.EditorSession
+import com.shamil.image_editor_sdk.ui.ImageEditorScreen
+import com.shamil.image_editor_sdk.renderer.AgslRenderer
+import com.shamil.image_editor_sdk.renderer.CanvasRenderer
+import com.shamil.image_editor_sdk.renderer.ImageRenderer
+import android.graphics.Bitmap
+import android.provider.MediaStore
+import android.content.ContentValues
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
 import java.io.File
+import java.io.OutputStream
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GalleryScreen(
     onFullScreenToggle: (Boolean) -> Unit,
-    viewModel: GalleryViewModel = viewModel()
+    viewModel: GalleryViewModel = viewModel(factory = GalleryViewModel.Factory)
 ) {
     val context = LocalContext.current
     val selectedItems by viewModel.selectedItems.collectAsStateWithLifecycle()
     val isSelectionMode by viewModel.isSelectionMode.collectAsStateWithLifecycle()
     val gridColumnCount by viewModel.gridColumnCount.collectAsStateWithLifecycle()
+    val isSearchActive by viewModel.isSearchActive.collectAsStateWithLifecycle()
+    val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
 
     val galleryItemsPaging = viewModel.galleryItemsPaging.collectAsLazyPagingItems()
+    val searchResultsPaging = viewModel.searchResults.collectAsLazyPagingItems()
 
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
 
@@ -125,28 +144,36 @@ fun GalleryScreen(
         return
     }
 
-    // Paging handles its own states
-    if (galleryItemsPaging.loadState.refresh is LoadState.Loading) {
-        GalleryShimmer()
-    } else {
+    Box(modifier = Modifier.fillMaxSize()) {
         GalleryContent(
             galleryItemsPaging = galleryItemsPaging,
+            searchResultsPaging = searchResultsPaging,
             selectedItems = selectedItems,
             isSelectionMode = isSelectionMode,
+            isSearchActive = isSearchActive,
+            searchQuery = searchQuery,
             gridColumnCount = gridColumnCount,
             scrollBehavior = scrollBehavior,
             viewModel = viewModel,
             onFullScreenToggle = onFullScreenToggle
         )
+
+        // Only show shimmer as an overlay on initial load to prevent flickering
+        if (galleryItemsPaging.loadState.refresh is LoadState.Loading && galleryItemsPaging.itemCount == 0) {
+            GalleryShimmer()
+        }
     }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun GalleryContent(
-    galleryItemsPaging: LazyPagingItems<GalleryItem>,
+    galleryItemsPaging: LazyPagingItems<GalleryUiModel>,
+    searchResultsPaging: LazyPagingItems<GalleryUiModel>,
     selectedItems: Set<Long>,
     isSelectionMode: Boolean,
+    isSearchActive: Boolean,
+    searchQuery: String,
     gridColumnCount: Int,
     scrollBehavior: TopAppBarScrollBehavior,
     viewModel: GalleryViewModel,
@@ -164,21 +191,33 @@ private fun GalleryContent(
     val favoritesGridState = rememberLazyGridState()
     val binGridState = rememberLazyGridState()
     val albumGridState = rememberLazyGridState()
+    val searchGridState = rememberLazyGridState()
 
     var selectedAlbumName by rememberSaveable { mutableStateOf<String?>(null) }
     var viewingItemIndex by rememberSaveable { mutableStateOf<Int?>(null) }
+    var viewingSearchItemIndex by rememberSaveable { mutableStateOf<Int?>(null) }
     var isAlbumListView by rememberSaveable { mutableStateOf(false) }
+
+    var editingItem by remember { mutableStateOf<GalleryItem?>(null) }
+    var editorSession by remember { mutableStateOf<EditorSession?>(null) }
 
     val selectedTab = GalleryTab.entries[pagerState.currentPage]
 
-    BackHandler(enabled = viewingItemIndex != null || isSelectionMode || selectedAlbumName != null) {
+    BackHandler(enabled = viewingItemIndex != null || viewingSearchItemIndex != null || isSelectionMode || selectedAlbumName != null || editingItem != null || isSearchActive) {
         when {
+            editingItem != null -> {
+                editingItem = null
+                editorSession = null
+            }
             viewingItemIndex != null -> {
                 viewingItemIndex = null
-                onFullScreenToggle(false)
+            }
+            viewingSearchItemIndex != null -> {
+                viewingSearchItemIndex = null
             }
             isSelectionMode -> viewModel.clearSelection()
             selectedAlbumName != null -> selectedAlbumName = null
+            isSearchActive -> viewModel.setSearchActive(false)
         }
     }
 
@@ -188,7 +227,10 @@ private fun GalleryContent(
     }?.collectAsLazyPagingItems()
 
     Box(modifier = Modifier.fillMaxSize()) {
-        onFullScreenToggle(viewingItemIndex != null)
+        val shouldBeFullScreen = viewingItemIndex != null || viewingSearchItemIndex != null || selectedAlbumName != null || editingItem != null
+        LaunchedEffect(shouldBeFullScreen) {
+            onFullScreenToggle(shouldBeFullScreen)
+        }
         
         Scaffold(
             modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
@@ -202,7 +244,7 @@ private fun GalleryContent(
                         onRestore = { viewModel.restoreSelected() },
                         onDeletePermanently = { viewModel.permanentlyDeleteSelected() },
                         onShare = {
-                            // Sharing would need a way to get items, maybe from the paging data or by IDs
+                            // Sharing logic
                         },
                         onFavorite = {
                             selectedItems.forEach { id ->
@@ -212,23 +254,34 @@ private fun GalleryContent(
                         }
                     )
 
+                } else if (isSearchActive) {
+                    SearchTopBar(
+                        query = searchQuery,
+                        onQueryChange = { viewModel.search(it) },
+                        onClose = { viewModel.setSearchActive(false) }
+                    )
                 } else {
                     MediumTopAppBar(
-                        title = { Text(selectedAlbumName ?: "Gallery") },
+                        title = { Text(selectedAlbumName ?: stringResource(R.string.gallery_title)) },
                         navigationIcon = {
                             if (selectedAlbumName != null) {
                                 IconButton(onClick = { selectedAlbumName = null }) {
-                                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = stringResource(R.string.gallery_back))
                                 }
                             }
                         },
                         actions = {
-                            if (selectedAlbumName == null && selectedTab == GalleryTab.Albums) {
-                                IconButton(onClick = { isAlbumListView = !isAlbumListView }) {
-                                    Icon(
-                                        imageVector = if (isAlbumListView) Icons.Default.GridView else Icons.AutoMirrored.Filled.List,
-                                        contentDescription = "Toggle View"
-                                    )
+                            if (selectedAlbumName == null) {
+                                IconButton(onClick = { viewModel.setSearchActive(true) }) {
+                                    Icon(Icons.Default.Search, contentDescription = stringResource(R.string.search_hint))
+                                }
+                                if (selectedTab == GalleryTab.Albums) {
+                                    IconButton(onClick = { isAlbumListView = !isAlbumListView }) {
+                                        Icon(
+                                            imageVector = if (isAlbumListView) Icons.Default.GridView else Icons.AutoMirrored.Filled.List,
+                                            contentDescription = stringResource(R.string.gallery_toggle_view)
+                                        )
+                                    }
                                 }
                             }
                         },
@@ -238,121 +291,152 @@ private fun GalleryContent(
             }
         ) { padding ->
             Column(modifier = Modifier.padding(padding)) {
-                if (selectedAlbumName == null && !isSelectionMode) {
-                    PrimaryScrollableTabRow(
-                        selectedTabIndex = pagerState.currentPage,
-                        containerColor = MaterialTheme.colorScheme.surface,
-                        contentColor = MaterialTheme.colorScheme.primary,
-                        edgePadding = 16.dp,
-                        divider = {}
-                    ) {
-                        GalleryTab.entries.forEachIndexed { index, tab ->
-                            Tab(
-                                selected = pagerState.currentPage == index,
-                                onClick = {
-                                    coroutineScope.launch {
-                                        pagerState.animateScrollToPage(index)
+                if (isSearchActive) {
+                    if (searchResultsPaging.itemCount == 0 && searchResultsPaging.loadState.refresh is LoadState.NotLoading) {
+                        EmptyState(title = stringResource(R.string.search_no_results), description = stringResource(R.string.search_try_different))
+                    } else {
+                        GalleryGridPaging(
+                            galleryItems = searchResultsPaging,
+                            columnCount = gridColumnCount,
+                            onColumnCountChange = { viewModel.updateGridColumnCount(it) },
+                            state = searchGridState,
+                            selectedItems = selectedItems,
+                            onItemClick = { item, index ->
+                                if (isSelectionMode) viewModel.toggleSelection(item.id)
+                                else viewingSearchItemIndex = index
+                            },
+                            onItemLongClick = { item -> viewModel.enterSelectionMode(item.id) }
+                        )
+                    }
+                } else {
+                    if (selectedAlbumName == null && !isSelectionMode) {
+                        PrimaryScrollableTabRow(
+                            selectedTabIndex = pagerState.currentPage,
+                            containerColor = MaterialTheme.colorScheme.surface,
+                            contentColor = MaterialTheme.colorScheme.primary,
+                            edgePadding = 16.dp,
+                            divider = {}
+                        ) {
+                            GalleryTab.entries.forEachIndexed { index, tab ->
+                                Tab(
+                                    selected = pagerState.currentPage == index,
+                                    onClick = {
+                                        coroutineScope.launch {
+                                            pagerState.animateScrollToPage(index)
+                                        }
                                     }
-                                }
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(12.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.Center
                                 ) {
-                                    Icon(
-                                        imageVector = tab.icon,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                    if (tab.title.isNotEmpty()) {
-                                        Spacer(modifier = Modifier.width(8.dp))
-                                        Text(
-                                            text = tab.title,
-                                            style = MaterialTheme.typography.labelLarge,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
+                                    Row(
+                                        modifier = Modifier.padding(12.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = tab.icon,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(20.dp)
                                         )
+                                        if (tab.title.isNotEmpty()) {
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text(
+                                                text = tab.title,
+                                                style = MaterialTheme.typography.labelLarge,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                        }
                                     }
                                 }
                             }
                         }
                     }
-                }
 
-                if (selectedAlbumName != null && albumItemsPaging != null) {
-                    GalleryGridPaging(
-                        galleryItems = albumItemsPaging,
-                        columnCount = gridColumnCount,
-                        onColumnCountChange = { viewModel.updateGridColumnCount(it) },
-                        state = albumGridState,
-                        selectedItems = selectedItems,
-                        onItemClick = { item, index ->
-                            if (isSelectionMode) viewModel.toggleSelection(item.id)
-                            else viewingItemIndex = index
-                        },
-                        onItemLongClick = { item -> viewModel.enterSelectionMode(item.id) }
-                    )
-                } else {
-                    HorizontalPager(
-                        state = pagerState,
-                        modifier = Modifier.fillMaxSize(),
-                        userScrollEnabled = !isSelectionMode
-                    ) { page ->
-                        when (GalleryTab.entries[page]) {
-                            GalleryTab.Recent -> GalleryGridPaging(
-                                galleryItems = galleryItemsPaging,
-                                columnCount = gridColumnCount,
-                                onColumnCountChange = { viewModel.updateGridColumnCount(it) },
-                                state = recentGridState,
-                                selectedItems = selectedItems,
-                                onItemClick = { item, index ->
-                                    if (isSelectionMode) viewModel.toggleSelection(item.id)
-                                    else viewingItemIndex = index
-                                },
-                                onItemLongClick = { item -> viewModel.enterSelectionMode(item.id) }
-                            )
-
-                            GalleryTab.Favorites -> {
-                                GalleryGridPaging(
-                                    galleryItems = favoriteItemsPaging,
-                                    columnCount = gridColumnCount,
-                                    onColumnCountChange = { viewModel.updateGridColumnCount(it) },
-                                    state = favoritesGridState,
-                                    selectedItems = selectedItems,
-                                    onItemClick = { item, index ->
-                                        if (isSelectionMode) viewModel.toggleSelection(item.id)
-                                        else viewingItemIndex = index
-                                    },
-                                    onItemLongClick = { item -> viewModel.enterSelectionMode(item.id) }
-                                )
-                            }
-
-                            GalleryTab.Albums -> {
-                                if (isAlbumListView) {
-                                    AlbumSummaryList(albums) { selectedAlbumName = it.folder }
-                                } else {
-                                    AlbumSummaryGrid(albums) { selectedAlbumName = it.folder }
-                                }
-                            }
-
-                            GalleryTab.Bin -> {
-                                if (binUiStatePaging.itemCount == 0 && binUiStatePaging.loadState.refresh is LoadState.NotLoading) {
-                                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                        Text("Bin is empty")
+                    if (selectedAlbumName != null && albumItemsPaging != null) {
+                        GalleryGridPaging(
+                            galleryItems = albumItemsPaging,
+                            columnCount = gridColumnCount,
+                            onColumnCountChange = { viewModel.updateGridColumnCount(it) },
+                            state = albumGridState,
+                            selectedItems = selectedItems,
+                            onItemClick = { item, index ->
+                                if (isSelectionMode) viewModel.toggleSelection(item.id)
+                                else viewingItemIndex = index
+                            },
+                            onItemLongClick = { item -> viewModel.enterSelectionMode(item.id) }
+                        )
+                    } else {
+                        HorizontalPager(
+                            state = pagerState,
+                            modifier = Modifier.fillMaxSize(),
+                            userScrollEnabled = !isSelectionMode
+                        ) { page ->
+                            when (GalleryTab.entries[page]) {
+                                GalleryTab.Recent -> {
+                                    if (galleryItemsPaging.itemCount == 0 && galleryItemsPaging.loadState.refresh is LoadState.NotLoading) {
+                                        EmptyState(title = stringResource(R.string.gallery_no_items), description = stringResource(R.string.gallery_sync_hint))
+                                    } else {
+                                        GalleryGridPaging(
+                                            galleryItems = galleryItemsPaging,
+                                            columnCount = gridColumnCount,
+                                            onColumnCountChange = { viewModel.updateGridColumnCount(it) },
+                                            state = recentGridState,
+                                            selectedItems = selectedItems,
+                                            onItemClick = { item, index ->
+                                                if (isSelectionMode) viewModel.toggleSelection(item.id)
+                                                else viewingItemIndex = index
+                                            },
+                                            onItemLongClick = { item -> viewModel.enterSelectionMode(item.id) }
+                                        )
                                     }
-                                } else {
-                                    BinGridPaging(
-                                        binUiModels = binUiStatePaging,
-                                        columnCount = gridColumnCount,
-                                        onColumnCountChange = { viewModel.updateGridColumnCount(it) },
-                                        state = binGridState,
-                                        selectedItems = selectedItems,
-                                        onItemClick = { item ->
-                                            if (isSelectionMode) viewModel.toggleSelection(item.id)
-                                        },
-                                        onItemLongClick = { item -> viewModel.enterSelectionMode(item.id) }
-                                    )
+                                }
+
+                                GalleryTab.Favorites -> {
+                                    if (favoriteItemsPaging.itemCount == 0 && favoriteItemsPaging.loadState.refresh is LoadState.NotLoading) {
+                                        EmptyState(title = stringResource(R.string.favorites_empty), description = stringResource(R.string.favorites_hint), icon = Icons.Default.FavoriteBorder)
+                                    } else {
+                                        GalleryGridPaging(
+                                            galleryItems = favoriteItemsPaging,
+                                            columnCount = gridColumnCount,
+                                            onColumnCountChange = { viewModel.updateGridColumnCount(it) },
+                                            state = favoritesGridState,
+                                            selectedItems = selectedItems,
+                                            onItemClick = { item, index ->
+                                                if (isSelectionMode) viewModel.toggleSelection(item.id)
+                                                else viewingItemIndex = index
+                                            },
+                                            onItemLongClick = { item -> viewModel.enterSelectionMode(item.id) }
+                                        )
+                                    }
+                                }
+
+                                GalleryTab.Albums -> {
+                                    if (albums.isEmpty()) {
+                                        EmptyState(title = stringResource(R.string.albums_empty), icon = Icons.Default.Folder)
+                                    } else {
+                                        if (isAlbumListView) {
+                                            AlbumSummaryList(albums) { selectedAlbumName = it.folder }
+                                        } else {
+                                            AlbumSummaryGrid(albums) { selectedAlbumName = it.folder }
+                                        }
+                                    }
+                                }
+
+                                GalleryTab.Bin -> {
+                                    if (binUiStatePaging.itemCount == 0 && binUiStatePaging.loadState.refresh is LoadState.NotLoading) {
+                                        EmptyState(title = stringResource(R.string.bin_empty), description = stringResource(R.string.bin_hint), icon = Icons.Default.DeleteOutline)
+                                    } else {
+                                        BinGridPaging(
+                                            binUiModels = binUiStatePaging,
+                                            columnCount = gridColumnCount,
+                                            onColumnCountChange = { viewModel.updateGridColumnCount(it) },
+                                            state = binGridState,
+                                            selectedItems = selectedItems,
+                                            onItemClick = { item ->
+                                                if (isSelectionMode) viewModel.toggleSelection(item.id)
+                                            },
+                                            onItemLongClick = { item -> viewModel.enterSelectionMode(item.id) }
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -361,8 +445,9 @@ private fun GalleryContent(
             }
         }
 
-        if (viewingItemIndex != null) {
+        if (viewingItemIndex != null || viewingSearchItemIndex != null) {
             val currentPagingItems = when {
+                viewingSearchItemIndex != null -> searchResultsPaging
                 selectedAlbumName != null -> albumItemsPaging
                 selectedTab == GalleryTab.Recent -> galleryItemsPaging
                 selectedTab == GalleryTab.Favorites -> favoriteItemsPaging
@@ -372,11 +457,192 @@ private fun GalleryContent(
             if (currentPagingItems != null) {
                 MediaViewerPaging(
                     items = currentPagingItems,
-                    initialIndex = viewingItemIndex!!,
+                    initialIndex = viewingSearchItemIndex ?: viewingItemIndex!!,
+                    viewModel = viewModel,
                     onBack = {
                         viewingItemIndex = null
-                        onFullScreenToggle(false)
+                        viewingSearchItemIndex = null
+                    },
+                    onEdit = { item ->
+                        coroutineScope.launch {
+                            val bitmap = BitmapUtils.loadBitmap(context, item.uri)
+                            if (bitmap != null) {
+                                editorSession = EditorSession(bitmap)
+                                editingItem = item
+                            }
+                        }
                     }
+                )
+            }
+        }
+
+        if (editingItem != null && editorSession != null) {
+            var isSaving by remember { mutableStateOf(false) }
+            val snackbarHostState = remember { SnackbarHostState() }
+
+            Box(modifier = Modifier.fillMaxSize()) {
+                ImageEditorScreen(
+                    session = editorSession!!,
+                    onClose = {
+                        editingItem = null
+                        editorSession = null
+                    },
+                    onSave = {
+                        coroutineScope.launch {
+                            isSaving = true
+                            try {
+                                val state = editorSession!!.state.value
+                                val renderer = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                    AgslRenderer(editorSession!!.sourceBitmap)
+                                } else {
+                                    CanvasRenderer(editorSession!!.sourceBitmap)
+                                }
+                                
+                                val finalBitmap = withContext(Dispatchers.Default) {
+                                    renderer.renderFull(state)
+                                }
+
+                                if (finalBitmap != null) {
+                                    saveBitmapToMediaStore(context, finalBitmap, editingItem!!.name)
+                                    snackbarHostState.showSnackbar("Image saved successfully")
+                                    viewModel.refresh()
+                                }
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                                snackbarHostState.showSnackbar("Failed to save image")
+                            } finally {
+                                isSaving = false
+                                editingItem = null
+                                editorSession = null
+                            }
+                        }
+                    }
+                )
+
+                if (isSaving) {
+                    Surface(
+                        modifier = Modifier.fillMaxSize(),
+                        color = Color.Black.copy(alpha = 0.5f)
+                    ) {
+                        Box(contentAlignment = Alignment.Center) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                CircularProgressIndicator()
+                                Spacer(modifier = Modifier.height(16.dp))
+                                Text(stringResource(R.string.saving_progress), color = Color.White)
+                            }
+                        }
+                    }
+                }
+                
+                SnackbarHost(
+                    hostState = snackbarHostState,
+                    modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 16.dp)
+                )
+            }
+        }
+    }
+}
+
+private suspend fun saveBitmapToMediaStore(context: Context, bitmap: Bitmap, originalName: String) = withContext(Dispatchers.IO) {
+    val name = "Edited_${System.currentTimeMillis()}_$originalName"
+    val contentValues = ContentValues().apply {
+        put(MediaStore.MediaColumns.DISPLAY_NAME, name)
+        put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
+        put(MediaStore.MediaColumns.RELATIVE_PATH, "Pictures/CloudVault")
+        put(MediaStore.MediaColumns.IS_PENDING, 1)
+    }
+
+    val resolver = context.contentResolver
+    val uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
+
+    uri?.let {
+        resolver.openOutputStream(it)?.use { outputStream ->
+            bitmap.compress(Bitmap.CompressFormat.JPEG, 95, outputStream)
+        }
+
+        contentValues.clear()
+        contentValues.put(MediaStore.MediaColumns.IS_PENDING, 0)
+        resolver.update(it, contentValues, null, null)
+    }
+}
+
+@Composable
+fun SearchTopBar(
+    query: String,
+    onQueryChange: (String) -> Unit,
+    onClose: () -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .statusBarsPadding(),
+        color = MaterialTheme.colorScheme.surface,
+        tonalElevation = 4.dp
+    ) {
+        TextField(
+            value = query,
+            onValueChange = onQueryChange,
+            modifier = Modifier.fillMaxWidth(),
+            placeholder = { Text(stringResource(R.string.search_hint)) },
+            leadingIcon = {
+                IconButton(onClick = onClose) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                }
+            },
+            trailingIcon = {
+                if (query.isNotEmpty()) {
+                    IconButton(onClick = { onQueryChange("") }) {
+                        Icon(Icons.Default.Close, contentDescription = "Clear")
+                    }
+                }
+            },
+            colors = TextFieldDefaults.colors(
+                focusedContainerColor = Color.Transparent,
+                unfocusedContainerColor = Color.Transparent,
+                disabledContainerColor = Color.Transparent,
+                focusedIndicatorColor = Color.Transparent,
+                unfocusedIndicatorColor = Color.Transparent
+            ),
+            singleLine = true
+        )
+    }
+}
+
+@Composable
+fun EmptyState(
+    title: String,
+    description: String? = null,
+    icon: ImageVector = Icons.Default.PhotoLibrary
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(32.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                modifier = Modifier.size(64.dp),
+                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleLarge,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+            )
+            if (description != null) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = description,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
                 )
             }
         }
@@ -509,7 +775,7 @@ fun BinGridPaging(
                     }
                 }
             },
-        contentPadding = PaddingValues(4.dp),
+        contentPadding = PaddingValues(start = 4.dp, top = 4.dp, end = 4.dp, bottom = 80.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
@@ -561,7 +827,7 @@ fun BinHeader(daysLeft: Int) {
 
 @Composable
 fun GalleryGridPaging(
-    galleryItems: LazyPagingItems<GalleryItem>,
+    galleryItems: LazyPagingItems<GalleryUiModel>,
     columnCount: Int,
     onColumnCountChange: (Int) -> Unit,
     state: LazyGridState = rememberLazyGridState(),
@@ -601,24 +867,55 @@ fun GalleryGridPaging(
                     }
                 }
             },
-        contentPadding = PaddingValues(4.dp),
+        contentPadding = PaddingValues(start = 4.dp, top = 4.dp, end = 4.dp, bottom = 80.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         items(
             count = galleryItems.itemCount,
-            key = galleryItems.itemKey { it.id }
+            key = galleryItems.itemKey { model ->
+                when (model) {
+                    is GalleryUiModel.Item -> "item_${model.item.id}"
+                    is GalleryUiModel.Header -> "header_${model.date}"
+                }
+            },
+            span = { index ->
+                when (galleryItems[index]) {
+                    is GalleryUiModel.Header -> GridItemSpan(maxLineSpan)
+                    else -> GridItemSpan(1)
+                }
+            }
         ) { index ->
-            val item = galleryItems[index]
-            if (item != null) {
-                GalleryItem(
-                    item = item,
-                    isSelected = selectedItems.contains(item.id),
-                    onClick = { onItemClick(it, index) },
-                    onLongClick = onItemLongClick
-                )
+            when (val model = galleryItems[index]) {
+                is GalleryUiModel.Header -> DateHeader(date = model.date)
+                is GalleryUiModel.Item -> {
+                    GalleryItem(
+                        item = model.item,
+                        isSelected = selectedItems.contains(model.item.id),
+                        onClick = { onItemClick(it, index) },
+                        onLongClick = onItemLongClick
+                    )
+                }
+                null -> {}
             }
         }
+    }
+}
+
+@Composable
+fun DateHeader(date: String) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 16.dp, bottom = 8.dp, start = 8.dp),
+        color = MaterialTheme.colorScheme.surface
+    ) {
+        Text(
+            text = date,
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.primary,
+            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+        )
     }
 }
 
@@ -664,7 +961,7 @@ fun GalleryGrid(
                     }
                 }
             },
-        contentPadding = PaddingValues(4.dp),
+        contentPadding = PaddingValues(start = 4.dp, top = 4.dp, end = 4.dp, bottom = 80.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
@@ -686,7 +983,7 @@ fun AlbumSummaryList(
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(8.dp),
+        contentPadding = PaddingValues(start = 8.dp, top = 8.dp, end = 8.dp, bottom = 80.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         items(albumItems, key = { it.folder }) { album ->
@@ -722,7 +1019,7 @@ fun AlbumSummaryGrid(
     LazyVerticalGrid(
         columns = GridCells.Adaptive(160.dp),
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(8.dp),
+        contentPadding = PaddingValues(start = 8.dp, top = 8.dp, end = 8.dp, bottom = 80.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {

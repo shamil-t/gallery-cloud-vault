@@ -40,6 +40,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 
@@ -73,6 +74,9 @@ dependencies {
     implementation(libs.androidx.paging.runtime.ktx)
     implementation(libs.androidx.paging.compose)
     implementation(libs.kotlinx.serialization.json)
+
+    // Image Editor SDK
+    implementation(project(":image-editor-sdk"))
 
     // Room
     implementation(libs.androidx.room.runtime)

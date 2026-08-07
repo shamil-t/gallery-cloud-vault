@@ -24,10 +24,21 @@ import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.withContext
 
-class GalleryRepository(private val context: Context) : IGalleryRepository {
+class GalleryRepository private constructor(private val context: Context) : IGalleryRepository {
     private val database = GalleryDatabase.getDatabase(context)
     private val dao = database.galleryDao()
     private val tag = Constants.TAG_REPOSITORY
+
+    companion object {
+        @Volatile
+        private var INSTANCE: GalleryRepository? = null
+
+        fun getInstance(context: Context): GalleryRepository {
+            return INSTANCE ?: synchronized(this) {
+                INSTANCE ?: GalleryRepository(context.applicationContext).also { INSTANCE = it }
+            }
+        }
+    }
 
     private val pagingConfig = PagingConfig(
         pageSize = Constants.PAGE_SIZE,
@@ -175,8 +186,8 @@ class GalleryRepository(private val context: Context) : IGalleryRepository {
                 trySend(Unit)
             }
         }
-        context.contentResolver.registerContentObserver(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, true, observer)
-        context.contentResolver.registerContentObserver(MediaStore.Video.Media.EXTERNAL_CONTENT_URI, true, observer)
+        // Observe root to catch all changes
+        context.contentResolver.registerContentObserver(MediaStore.Files.getContentUri("external"), true, observer)
         awaitClose { context.contentResolver.unregisterContentObserver(observer) }
     }.conflate()
 
@@ -204,6 +215,8 @@ class GalleryRepository(private val context: Context) : IGalleryRepository {
     override suspend fun deleteMedia(id: Long) = moveToBin(id)
 
     override suspend fun getMediaById(id: Long): GalleryItem? = dao.getMediaById(id)?.toDomain()
+
+    fun getMediaFlow(id: Long): Flow<GalleryItem?> = dao.getMediaByIdFlow(id).map { it?.toDomain() }
 
     private fun MediaThumbnail.toGalleryItem() = GalleryItem(
         id = this.id,

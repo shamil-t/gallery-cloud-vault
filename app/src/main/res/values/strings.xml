@@ -83,4 +83,20 @@
     <string name="action_cancel">Cancel</string>
     <string name="action_retry">Retry</string>
     <string name="action_ok">OK</string>
+    <string name="gallery_sync_hint">Try syncing or take some photos</string>
+    <string name="search_hint">Search gallery...</string>
+    <string name="search_no_results">No results found</string>
+    <string name="search_try_different">Try a different search term</string>
+    <string name="favorites_empty">No favorites yet</string>
+    <string name="favorites_hint">Items you favorite will appear here</string>
+    <string name="albums_empty">No albums found</string>
+    <string name="bin_empty">Bin is empty</string>
+    <string name="bin_hint">Deleted items are kept here for 30 days</string>
+    <string name="saving_progress">Saving...</string>
+    <string name="save_success">Image saved successfully</string>
+    <string name="save_error">Failed to save image</string>
+
+    <!-- Date Headers -->
+    <string name="date_today">Today</string>
+    <string name="date_yesterday">Yesterday</string>
 </resources>

@@ -26,12 +26,14 @@ fun SettingsScreen(
 ) {
     val theme by viewModel.theme.collectAsStateWithLifecycle()
     val themeStyle by viewModel.themeStyle.collectAsStateWithLifecycle()
+    val appIconStyle by viewModel.appIconStyle.collectAsStateWithLifecycle()
     val dynamicColor by viewModel.dynamicColor.collectAsStateWithLifecycle()
     val biometricLock by viewModel.biometricLock.collectAsStateWithLifecycle()
     val gridColumnCount by viewModel.gridColumnCount.collectAsStateWithLifecycle()
 
     var showThemeDialog by remember { mutableStateOf(false) }
     var showThemeStyleDialog by remember { mutableStateOf(false) }
+    var showAppIconDialog by remember { mutableStateOf(false) }
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     val uriHandler = LocalUriHandler.current
 
@@ -64,6 +66,12 @@ fun SettingsScreen(
                         subtitle = themeStyle.name.lowercase().replaceFirstChar { it.uppercase() },
                         icon = Icons.Default.Palette,
                         onClick = { showThemeStyleDialog = true }
+                    )
+                    SettingsClickableItem(
+                        title = "Launcher Icon",
+                        subtitle = appIconStyle.name.lowercase().replaceFirstChar { it.uppercase() },
+                        icon = Icons.Default.Apps,
+                        onClick = { showAppIconDialog = true }
                     )
                     SettingsSwitchItem(
                         title = "Dynamic Color",
@@ -214,6 +222,17 @@ fun SettingsScreen(
                 showThemeStyleDialog = false
             },
             onDismiss = { showThemeStyleDialog = false }
+        )
+    }
+
+    if (showAppIconDialog) {
+        AppIconSelectionDialog(
+            currentStyle = appIconStyle,
+            onStyleSelected = {
+                viewModel.setAppIconStyle(it)
+                showAppIconDialog = false
+            },
+            onDismiss = { showAppIconDialog = false }
         )
     }
 }
@@ -383,3 +402,45 @@ fun ThemeStyleSelectionDialog(
     )
 }
 
+@Composable
+fun AppIconSelectionDialog(
+    currentStyle: AppThemeStyle,
+    onStyleSelected: (AppThemeStyle) -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Select Launcher Icon") },
+        text = {
+            Column {
+                Text(
+                    text = "Changing the icon will refresh the application to apply the change.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(bottom = 12.dp)
+                )
+                AppThemeStyle.entries.forEach { style ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onStyleSelected(style) }
+                            .padding(vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = (style == currentStyle),
+                            onClick = { onStyleSelected(style) }
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(text = style.name.lowercase().replaceFirstChar { it.uppercase() })
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
+}

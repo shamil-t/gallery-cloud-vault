@@ -24,3 +24,5 @@ dependencyResolutionManagement {
 
 rootProject.name = "Cloud Vault"
 include(":app")
+include(":cloudvault-sdk")
+include(":image-editor-sdk")

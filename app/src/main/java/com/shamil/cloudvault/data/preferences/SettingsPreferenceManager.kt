@@ -28,6 +28,7 @@ class SettingsPreferenceManager(private val context: Context) {
 
     private val themeKey = stringPreferencesKey(Constants.PREF_THEME_KEY)
     private val themeStyleKey = stringPreferencesKey(Constants.PREF_THEME_STYLE_KEY)
+    private val appIconStyleKey = stringPreferencesKey(Constants.PREF_APP_ICON_STYLE_KEY)
     private val dynamicColorKey = booleanPreferencesKey(Constants.PREF_DYNAMIC_COLOR_KEY)
     private val biometricLockKey = booleanPreferencesKey(Constants.PREF_BIOMETRIC_LOCK_KEY)
     private val gridColumnCountKey = intPreferencesKey(Constants.PREF_GRID_COLUMN_COUNT_KEY)
@@ -54,6 +55,19 @@ class SettingsPreferenceManager(private val context: Context) {
                 AppThemeStyle.valueOf(preferences[themeStyleKey] ?: AppThemeStyle.AZURE.name)
             } catch (e: Exception) {
                 Logger.w("SettingsPreferenceManager", "Invalid theme style value, using default")
+                AppThemeStyle.AZURE
+            }
+        }
+
+    val appIconStyle: Flow<AppThemeStyle> = context.dataStore.data
+        .catch { exception ->
+            Logger.e("SettingsPreferenceManager", "Error reading app icon style preference", exception)
+        }
+        .map { preferences ->
+            try {
+                AppThemeStyle.valueOf(preferences[appIconStyleKey] ?: AppThemeStyle.AZURE.name)
+            } catch (e: Exception) {
+                Logger.w("SettingsPreferenceManager", "Invalid app icon style value, using default")
                 AppThemeStyle.AZURE
             }
         }
@@ -101,6 +115,17 @@ class SettingsPreferenceManager(private val context: Context) {
             Logger.d("SettingsPreferenceManager", "Theme style set to: ${style.name}")
         } catch (e: Exception) {
             Logger.e("SettingsPreferenceManager", "Error setting theme style", e)
+        }
+    }
+
+    suspend fun setAppIconStyle(style: AppThemeStyle) {
+        try {
+            context.dataStore.edit { preferences ->
+                preferences[appIconStyleKey] = style.name
+            }
+            Logger.d("SettingsPreferenceManager", "App icon style set to: ${style.name}")
+        } catch (e: Exception) {
+            Logger.e("SettingsPreferenceManager", "Error setting app icon style", e)
         }
     }
 

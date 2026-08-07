@@ -13,4 +13,17 @@
     <color name="brand_secondary">#00497D</color>
     <color name="brand_background">#FDFBFF</color>
     <color name="ic_launcher_background">#0061A4</color>
+    <color name="splash_background">@color/brand_primary</color>
+
+    <!-- Forest Theme Colors -->
+    <color name="forest_primary">#006E1C</color>
+    <color name="forest_secondary">#005312</color>
+
+    <!-- Sunset Theme Colors -->
+    <color name="sunset_primary">#9C4143</color>
+    <color name="sunset_secondary">#7E2A2D</color>
+
+    <!-- Lavender Theme Colors -->
+    <color name="lavender_primary">#764B9B</color>
+    <color name="lavender_secondary">#5D3281</color>
 </resources>

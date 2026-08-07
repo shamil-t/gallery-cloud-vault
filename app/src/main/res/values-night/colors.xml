@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Brand Colors (Dark Mode Overrides) -->
+    <color name="brand_primary">#0061A4</color>
+    <color name="brand_secondary">#1A1C1E</color>
+    <color name="brand_background">#1A1C1E</color>
+    <color name="ic_launcher_background">#1A1C1E</color>
+    <color name="splash_background">#1A1C1E</color>
+</resources>

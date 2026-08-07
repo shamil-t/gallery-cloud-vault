@@ -14,7 +14,7 @@ class BinCleanupWorker(
     override suspend fun doWork(): Result {
         return try {
             Logger.d("BinCleanupWorker", "Starting bin cleanup")
-            val repository = GalleryRepository(applicationContext)
+            val repository = GalleryRepository.getInstance(applicationContext)
             repository.cleanupBin()
             Logger.d("BinCleanupWorker", "Bin cleanup completed")
             Result.success()

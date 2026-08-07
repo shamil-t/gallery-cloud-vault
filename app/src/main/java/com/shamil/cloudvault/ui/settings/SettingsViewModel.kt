@@ -2,6 +2,8 @@ package com.shamil.cloudvault.ui.settings
 
 import android.app.Application
 import android.util.Log
+import android.content.ComponentName
+import android.content.pm.PackageManager
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.shamil.cloudvault.data.preferences.AppTheme
@@ -109,6 +111,12 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         initialValue = AppThemeStyle.AZURE
     )
 
+    val appIconStyle = preferenceManager.appIconStyle.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = AppThemeStyle.AZURE
+    )
+
     val dynamicColor = preferenceManager.dynamicColor.stateIn(
         scope = viewModelScope,
         started = SharingStarted.WhileSubscribed(5000),
@@ -136,6 +144,48 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     fun setThemeStyle(style: AppThemeStyle) {
         viewModelScope.launch {
             preferenceManager.setThemeStyle(style)
+        }
+    }
+
+    fun setAppIconStyle(style: AppThemeStyle) {
+        viewModelScope.launch {
+            preferenceManager.setAppIconStyle(style)
+            updateAppIcon(style)
+        }
+    }
+
+    private fun updateAppIcon(style: AppThemeStyle) {
+        val application = getApplication<Application>()
+        val packageManager = application.packageManager
+        val packageName = application.packageName
+
+        val azureComponent = ComponentName(packageName, "$packageName.MainActivityAzure")
+        val forestComponent = ComponentName(packageName, "$packageName.MainActivityForest")
+        val sunsetComponent = ComponentName(packageName, "$packageName.MainActivitySunset")
+        val lavenderComponent = ComponentName(packageName, "$packageName.MainActivityLavender")
+
+        val components = listOf(azureComponent, forestComponent, sunsetComponent, lavenderComponent)
+        val targetComponent = when (style) {
+            AppThemeStyle.AZURE -> azureComponent
+            AppThemeStyle.FOREST -> forestComponent
+            AppThemeStyle.SUNSET -> sunsetComponent
+            AppThemeStyle.LAVENDER -> lavenderComponent
+        }
+
+        components.forEach { component ->
+            val newState = if (component == targetComponent) {
+                PackageManager.COMPONENT_ENABLED_STATE_ENABLED
+            } else {
+                PackageManager.COMPONENT_ENABLED_STATE_DISABLED
+            }
+            
+            if (packageManager.getComponentEnabledSetting(component) != newState) {
+                packageManager.setComponentEnabledSetting(
+                    component,
+                    newState,
+                    PackageManager.DONT_KILL_APP
+                )
+            }
         }
     }
 

@@ -44,6 +44,7 @@ object Constants {
     const val PREFERENCES_NAME = "settings"
     const val PREF_THEME_KEY = "app_theme"
     const val PREF_THEME_STYLE_KEY = "app_theme_style"
+    const val PREF_APP_ICON_STYLE_KEY = "app_icon_style"
     const val PREF_DYNAMIC_COLOR_KEY = "dynamic_color"
     const val PREF_BIOMETRIC_LOCK_KEY = "biometric_lock"
     const val PREF_GRID_COLUMN_COUNT_KEY = "grid_column_count"

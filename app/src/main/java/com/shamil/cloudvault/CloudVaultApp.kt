@@ -1,7 +1,7 @@
 package com.shamil.cloudvault
 
 import android.app.Application
-import androidx.media3.common.BuildConfig
+import com.shamil.cloudvault.BuildConfig
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
@@ -13,8 +13,14 @@ import coil.memory.MemoryCache
 import coil.util.DebugLogger
 import com.shamil.cloudvault.data.network.UpdateCheckWorker
 import com.shamil.cloudvault.utils.Constants
+import com.shamil.cloudvault.data.GalleryRepository
 
 class CloudVaultApp : Application(), ImageLoaderFactory {
+    
+    val repository: GalleryRepository by lazy {
+        GalleryRepository.getInstance(this)
+    }
+
     override fun onCreate() {
         super.onCreate()
         scheduleUpdateCheck()

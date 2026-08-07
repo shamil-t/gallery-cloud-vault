@@ -85,7 +85,7 @@ fun HomeScreen() {
                     GalleryScreen(onFullScreenToggle = { isFullScreen = it })
                 }
                 composable(Screen.Vault.route) {
-                    VaultScreen("Vault Content")
+                    VaultScreen()
                 }
                 composable(Screen.Settings.route) {
                     SettingsScreen()

@@ -83,4 +83,7 @@ interface GalleryDao {
 
     @Query("SELECT * FROM media_items WHERE id = :id")
     suspend fun getMediaById(id: Long): MediaEntity?
+
+    @Query("SELECT * FROM media_items WHERE id = :id")
+    fun getMediaByIdFlow(id: Long): Flow<MediaEntity?>
 }
