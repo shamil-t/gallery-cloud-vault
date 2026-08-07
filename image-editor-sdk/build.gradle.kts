@@ -6,7 +6,7 @@ plugins {
 
 android {
     namespace = "com.shamil.image_editor_sdk"
-    compileSdk = 35
+    compileSdk = 37
 
     defaultConfig {
         minSdk = 29
