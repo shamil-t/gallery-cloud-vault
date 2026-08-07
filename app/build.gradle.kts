@@ -24,7 +24,7 @@ android {
         applicationId = "com.shamil.cloudvault"
         minSdk = 29
         targetSdk = 37
-        versionCode = 5
+        versionCode = 6
         versionName = "1.2.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
