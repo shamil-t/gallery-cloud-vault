@@ -29,11 +29,13 @@ class DownloadWorker(
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         val downloadUrl = inputData.getString(KEY_DOWNLOAD_URL) ?: return@withContext Result.failure()
         val fileName = inputData.getString(KEY_FILE_NAME) ?: "update.apk"
+        val updateManager = UpdateManager(applicationContext)
 
         createNotificationChannel()
         setForeground(createForegroundInfo(0))
 
-        val outputFile = File(applicationContext.getExternalFilesDir(null), fileName)
+        val outputDir = updateManager.getUpdateDirectory()
+        val outputFile = File(outputDir, fileName)
         var downloadedBytes = 0L
         if (outputFile.exists()) {
             downloadedBytes = outputFile.length()

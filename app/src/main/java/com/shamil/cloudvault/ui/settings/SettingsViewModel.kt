@@ -21,6 +21,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import androidx.work.*
 import kotlinx.serialization.json.Json
+import java.io.File
 
 sealed class UpdateState {
     object Idle : UpdateState()
@@ -85,7 +86,16 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                     WorkInfo.State.SUCCEEDED -> {
                         val filePath = workInfo.outputData.getString(DownloadWorker.KEY_FILE_PATH)
                         if (filePath != null) {
-                            _updateState.value = UpdateState.ReadyToInstall(filePath)
+                            val fileName = File(filePath).name
+                            val downloadedVersion = updateManager.extractVersionFromFileName(fileName)
+                            val currentVersion = updateManager.getCurrentVersionName()
+                            
+                            if (downloadedVersion != null && updateManager.compareVersions(downloadedVersion, currentVersion) > 0) {
+                                _updateState.value = UpdateState.ReadyToInstall(filePath)
+                            } else {
+                                // APK is stale or version is already updated
+                                _updateState.value = UpdateState.NotAvailable
+                            }
                         }
                     }
                     WorkInfo.State.FAILED -> {
@@ -219,6 +229,8 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                     _updateState.value = UpdateState.Available(updateInfo)
                 } else {
                     _updateState.value = UpdateState.NotAvailable
+                    // Ensure any stale APKs are cleared
+                    updateManager.clearUpdateDirectory()
                 }
             }.onFailure { exception ->
                 _updateState.value = UpdateState.Error(exception.message ?: "Failed to check for updates")
@@ -227,6 +239,9 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun downloadUpdate(updateInfo: UpdateInfo) {
+        // Clear previous downloads before starting a new one
+        updateManager.clearUpdateDirectory()
+
         val constraints = Constraints.Builder()
             .setRequiredNetworkType(NetworkType.CONNECTED)
             .build()

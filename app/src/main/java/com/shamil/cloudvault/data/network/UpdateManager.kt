@@ -76,14 +76,14 @@ class UpdateManager(private val context: Context) {
     }
 
     fun isUpdateAvailable(updateInfo: UpdateInfo): Boolean {
-        return compareVersions(updateInfo.versionCode, getCurrentVersionName()) > 0
+        return compareVersions(updateInfo.versionName, getCurrentVersionName()) > 0
     }
 
     /**
      * Compares two version strings.
      * Returns 1 if v1 > v2, -1 if v1 < v2, 0 if equal.
      */
-    private fun compareVersions(v1: String, v2: String): Int {
+    fun compareVersions(v1: String, v2: String): Int {
         val cleanV1 = v1.removePrefix("v").split(".")
         val cleanV2 = v2.removePrefix("v").split(".")
         
@@ -97,6 +97,39 @@ class UpdateManager(private val context: Context) {
             if (part1 < part2) return -1
         }
         return 0
+    }
+
+    fun getUpdateDirectory(): File {
+        val dir = File(context.getExternalFilesDir(null), "updates")
+        if (!dir.exists()) {
+            dir.mkdirs()
+        }
+        return dir
+    }
+
+    fun clearUpdateDirectory() {
+        try {
+            val dir = getUpdateDirectory()
+            dir.listFiles()?.forEach { file ->
+                if (file.name.endsWith(".apk")) {
+                    file.delete()
+                }
+            }
+            Log.d(TAG, "Update directory cleared")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to clear update directory", e)
+        }
+    }
+
+    fun extractVersionFromFileName(fileName: String): String? {
+        // Expected format: cloudvault_1.2.1.apk or similar
+        return try {
+            fileName.substringAfter("cloudvault_", "")
+                .substringBefore(".apk", "")
+                .takeIf { it.isNotEmpty() }
+        } catch (e: Exception) {
+            null
+        }
     }
 
     fun installApk(filePath: String) {
